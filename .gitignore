@@ -7,6 +7,7 @@ service_account.json
 
 # Generated output
 data/
+output/
 *.log
 __pycache__/
 *.pyc

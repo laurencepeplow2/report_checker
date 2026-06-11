@@ -68,12 +68,37 @@ REWRITE_INSTRUCTION = (
     "quotation marks around it."
 )
 
-REWRITE_FIGURE_INSTRUCTION = (
-    "You will receive a figure from the draft (as an image) and the list "
-    "of style rules it breaches. A figure cannot be rewritten as text, so "
-    "instead give the author short, concrete instructions to fix every "
-    "listed breach - at most three bullet points, nothing else."
+WORD_FLAG_INSTRUCTION = (
+    "You will receive the most frequent words from a draft publication "
+    "with their counts (small connecting words and the document's core "
+    "topic vocabulary have already been removed). Identify the words "
+    "whose overuse signals a writing-style problem: filler adverbs, "
+    "hedges, intensifiers, vague qualifiers and overworked transitions "
+    "or emphasis words (for example: while, also, strong, significant, "
+    "crucial, only, key). Do NOT flag words that simply reflect the "
+    "document's subject matter (for example: value, materials, demand, "
+    "billion). For each flagged word give a reason of at most six words."
 )
+
+WORD_FLAG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "flagged": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["word", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["flagged"],
+    "additionalProperties": False,
+}
 
 
 def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
@@ -169,12 +194,7 @@ def build_rewrite_user_text(rules: list[Rule], chunk: Chunk) -> str:
         f"Extract ({chunk.input_level} from the {chunk.section} of a "
         f"{chunk.document_type}):"
     )
-    if chunk.input_level == "figure":
-        caption = chunk.text or "(no caption or alt text provided)"
-        body = f"{label}\nThe figure is attached as an image. Caption/alt text: {caption}"
-    else:
-        body = f"{label}\n{chunk.text}"
-    return f"Rules breached:\n{listed}\n\n{body}"
+    return f"Rules breached:\n{listed}\n\n{label}\n{chunk.text}"
 
 
 def run_rewrite(
@@ -184,27 +204,20 @@ def run_rewrite(
     chunk: Chunk,
     config: StyleGuideConfig | None = None,
 ) -> RewriteResult:
-    """Second loop: rewrite the chunk fixing only the breached rules."""
-    role = (config.role_context if config else "") or ROLE_CONTEXT
-    instruction = (
-        REWRITE_FIGURE_INSTRUCTION if chunk.input_level == "figure"
-        else REWRITE_INSTRUCTION
-    )
-    content: list[dict] = [{"type": "text", "text": build_rewrite_user_text(rules, chunk)}]
-    if chunk.input_level == "figure":
-        figure = chunk.figures[0]
-        if figure.image_path and Path(figure.image_path).exists():
-            content.insert(0, _image_block(figure.image_path))
+    """Second loop: rewrite the chunk fixing only the breached rules.
 
+    Figures are not rewritten - the caller skips figure chunks.
+    """
+    role = (config.role_context if config else "") or ROLE_CONTEXT
     response = client.messages.create(
         model=model,
         max_tokens=2000,
         system=[{
             "type": "text",
-            "text": f"{role}\n\n{instruction}",
+            "text": f"{role}\n\n{REWRITE_INSTRUCTION}",
             "cache_control": {"type": "ephemeral"},
         }],
-        messages=[{"role": "user", "content": content}],
+        messages=[{"role": "user", "content": build_rewrite_user_text(rules, chunk)}],
     )
     suggestion = "".join(b.text for b in response.content if b.type == "text").strip()
     return RewriteResult(
@@ -212,6 +225,34 @@ def run_rewrite(
         input_tokens=response.usage.input_tokens,
         output_tokens=response.usage.output_tokens,
     )
+
+
+def run_word_flagging(
+    client: anthropic.Anthropic,
+    model: str,
+    words: list[dict],
+    config: StyleGuideConfig | None = None,
+) -> dict[str, str]:
+    """AI loop over the overused-words list: returns {word: reason} for the
+    words whose overuse is a style issue (not document subject matter)."""
+    import json as _json
+
+    listing = "\n".join(f"{w['word']} ({w['count']})" for w in words)
+    response = client.messages.create(
+        model=model,
+        max_tokens=1500,
+        system=WORD_FLAG_INSTRUCTION,
+        messages=[{"role": "user", "content": f"Most frequent words:\n{listing}"}],
+        output_config={"format": {"type": "json_schema", "schema": WORD_FLAG_SCHEMA}},
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    data = _json.loads(text)
+    known = {w["word"] for w in words}
+    return {
+        item["word"].lower(): item["reason"]
+        for item in data.get("flagged", [])
+        if item["word"].lower() in known
+    }
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:

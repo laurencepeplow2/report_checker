@@ -33,6 +33,7 @@
           <option value="subsection">Sub-section</option>
         </select>
         <span id="issue-summary" class="muted"></span>
+        <span id="progress-summary" class="muted"></span>
       </div>
       <div class="toolbar-right">
         <button id="prev-btn">&#8592; Prev</button>
@@ -43,8 +44,11 @@
 
     <div class="review-grid">
       <div class="panel" id="extract-panel">
-        <div class="panel-title">Extract</div>
+        <div class="panel-title">Extract
+          <label class="reviewed-toggle"><input type="checkbox" id="reviewed-box"> Checked</label>
+        </div>
         <div id="chunk-meta" class="chunk-meta"></div>
+        <div id="chunk-location" class="location"></div>
         <div id="chunk-content" class="reading"></div>
       </div>
 
@@ -55,6 +59,7 @@
 
       <div class="panel" id="suggestion-panel">
         <div class="panel-title">Suggested improvement</div>
+        <p class="muted small">Changes vs the original are <ins class="diff-add">highlighted</ins>.</p>
         <div id="suggestion-content" class="reading"></div>
         <button id="copy-btn" hidden>Copy suggestion</button>
       </div>
@@ -63,6 +68,11 @@
 
   <!-- ===================== HEALTH ===================== -->
   <section id="view-health" class="view" hidden>
+    <div class="stats-strip">
+      <div class="stat"><span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span></div>
+      <div class="stat"><span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span></div>
+      <div class="stat"><span id="stat-total" class="bignum">–</span><span class="muted">total flags</span></div>
+    </div>
     <div class="health-grid">
       <div class="panel">
         <div class="panel-title">Broken links</div>
@@ -75,19 +85,25 @@
 
       <div class="panel">
         <div class="panel-title">Overused words</div>
-        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed (edit <code>word_exclusions.csv</code>).</p>
+        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed (edit <code>word_exclusions.csv</code>). <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
         <div id="word-bars"></div>
       </div>
 
       <div class="panel">
         <div class="panel-title">What is my story?</div>
-        <p class="muted small">Every section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
+        <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
         <div id="story-list"></div>
       </div>
     </div>
   </section>
 
   <div id="empty-state" class="muted" hidden></div>
+
+  <footer>
+    Found a problem with this tool?
+    <a href="https://docs.google.com/spreadsheets/d/1R7HPHIBtgWx2aEcHXDv182DwxAWDmofAPDwBwB0cNIo/edit?usp=sharing"
+       target="_blank" rel="noopener">Report issues here</a>
+  </footer>
 
   <script src="/static/app.js"></script>
 </body>

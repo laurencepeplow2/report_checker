@@ -37,6 +37,26 @@ SECTION_RULES = [  # first match on the lowercased tab title wins
 ]
 DEFAULT_SECTION = "main text"
 
+# A numbered section header: "1. Value", "2.3 Lithium", annex "I.1 ...".
+SECTION_NUMBER_RE = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+(?:\.\d+)+)[.)]?\s", re.IGNORECASE
+)
+
+# Rough characters per printed page, used for the approximate page number
+# shown in the UI (the Docs API exposes no real pagination).
+CHARS_PER_PAGE = 2600
+FIGURE_CHAR_EQUIVALENT = 1200
+
+
+def _is_pseudo_heading(text: str) -> int | None:
+    """Some sub-headers are styled as normal text (e.g. "1.3 European EV
+    production falls sharply..."). Treat a short numbered line as a heading;
+    its level is the depth of the leading number ("1.3" -> 2)."""
+    if len(text) > 130 or not SECTION_NUMBER_RE.match(text):
+        return None
+    number = text.split()[0].rstrip(".)")
+    return min(number.count(".") + 1, 4)
+
 
 @dataclass
 class Figure:
@@ -58,6 +78,9 @@ class Chunk:
     text: str
     kind: str = "text"        # text | table | figure
     figures: list[Figure] = field(default_factory=list)
+    tab_id: str = ""          # for deep links into the Google Doc
+    heading_id: str = ""      # nearest heading anchor (#heading=...)
+    approx_page: int = 0      # rough printed-page estimate
 
 
 @dataclass
@@ -200,8 +223,14 @@ def parse_document(
         order = _parse_tab(tab, title, section, chunks, order, image_dir,
                            links, headings)
 
-    for chunk in chunks:
+    chars = 0
+    for chunk in chunks:  # appended in document order
         chunk.document_type = document_type
+        chunk.approx_page = chars // CHARS_PER_PAGE + 1
+        if chunk.input_level == "paragraph":
+            chars += len(chunk.text) + 60  # spacing overhead
+        elif chunk.input_level == "figure":
+            chars += FIGURE_CHAR_EQUIVALENT
 
     return ParsedDocument(
         doc_id=doc_id,
@@ -231,6 +260,7 @@ def _parse_tab(
     headings.append({"tab": tab_title, "level": 0, "text": tab_title})
 
     heading_stack: list[tuple[int, str]] = []  # (level, text)
+    state = {"heading_id": ""}  # nearest real heading anchor for deep links
 
     # Accumulator for the current subsection
     sub_paras: list[str] = []
@@ -255,6 +285,8 @@ def _parse_tab(
             order=order,
             text="\n\n".join(sub_paras),
             figures=list(sub_figures),
+            tab_id=tab_id,
+            heading_id=state["heading_id"],
         ))
         order += 1
         sub_index += 1
@@ -281,6 +313,8 @@ def _parse_tab(
                     order=order,
                     text=text,
                     kind="table",
+                    tab_id=tab_id,
+                    heading_id=state["heading_id"],
                 ))
                 order += 1
                 para_index += 1
@@ -294,6 +328,11 @@ def _parse_tab(
         level = _heading_level(paragraph)
         text = _paragraph_text(paragraph).strip()
 
+        if level is None and text:
+            # Sub-headers styled as normal text ("1.3 European EV production
+            # falls sharply...") are headings in disguise.
+            level = _is_pseudo_heading(text)
+
         if level is not None:
             if text:
                 # Every heading starts a new subsection.
@@ -303,6 +342,9 @@ def _parse_tab(
                 heading_stack.append((level, text))
                 sub_heading_path[:] = heading_path()
                 headings.append({"tab": tab_title, "level": level, "text": text})
+                heading_anchor = paragraph.get("paragraphStyle", {}).get("headingId")
+                if heading_anchor:
+                    state["heading_id"] = heading_anchor
             continue
 
         # Figures embedded in this paragraph
@@ -342,6 +384,8 @@ def _parse_tab(
                 text=description,
                 kind="figure",
                 figures=[figure],
+                tab_id=tab_id,
+                heading_id=state["heading_id"],
             ))
             order += 1
             fig_index += 1
@@ -357,6 +401,8 @@ def _parse_tab(
                 heading_path=heading_path(),
                 order=order,
                 text=text,
+                tab_id=tab_id,
+                heading_id=state["heading_id"],
             ))
             order += 1
             para_index += 1

@@ -70,16 +70,28 @@ breaches. Writes `data/test_run.csv` (full prompts + r/a/g flags +
 suggestions) and `data/test_run.json` (for the UI). Needs
 `ANTHROPIC_API_KEY` in `.env`.
 
-## Run the document health analyses (no AI)
+## Run the document health analyses
 
 ```powershell
 .venv\Scripts\python.exe analyse_doc.py
 ```
 
-HTTP-checks every hyperlink in the doc (broken-link count), counts word
-frequency with connecting words removed (overused words), and lists all
-section/sub-section headers in order ("what is my story?"). Writes
+HTTP-checks every hyperlink in the doc (broken-link count, with
+"unverified" for bot-walled hosts), counts word frequency with connecting
+words and T&E domain words removed (overused words), lists all numbered
+section/sub-section headers in order ("what is my story?"), and runs one
+AI step classifying which overused words are a style issue. Writes
 `data/analysis.json`.
+
+## Export a sendable report
+
+```powershell
+.venv\Scripts\python.exe export_report.py
+```
+
+Builds `output/<doc title>/Open AI Report Check.html` — a single
+self-contained file (UI + data + figure images inlined). Send the folder
+or just the file; the recipient double-clicks it, no setup needed.
 
 ## Run the reviewer UI
 

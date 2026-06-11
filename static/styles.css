@@ -146,7 +146,40 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
 
 /* ---------- review panels ---------- */
 
-.chunk-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.chunk-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+
+.location { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.8rem; }
+.location a { color: var(--accent); text-decoration: none; }
+.location a:hover { text-decoration: underline; }
+
+.reviewed-toggle {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+.reviewed-toggle input { accent-color: var(--green); width: 1rem; height: 1rem; cursor: pointer; }
+#extract-panel.is-checked { outline: 2px solid #bcd9bd; outline-offset: -2px; }
+
+ins.diff-add {
+  background: #d9efdd;
+  color: var(--green);
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 0.1rem;
+}
+del.diff-del {
+  background: var(--red-bg);
+  color: var(--red);
+  border-radius: 3px;
+  padding: 0 0.1rem;
+}
 
 .tag {
   font-size: 0.74rem;
@@ -217,6 +250,42 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
 .bignum { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.02em; }
 .bignum.bad { color: var(--red); }
 .bignum.good { color: var(--green); }
+.bignum.amber { color: var(--amber); }
+
+.stats-strip {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.stat {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 0.8rem 1.25rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.flag-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--amber);
+  margin-right: 0.35rem;
+}
+.word-row.flagged .w { font-weight: 600; color: var(--amber); cursor: help; }
+.word-row.flagged .bar { background: var(--amber); }
+
+footer {
+  padding: 1.2rem 1.6rem 1.6rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+footer a { color: var(--accent); }
 
 .link-row {
   padding: 0.55rem 0;

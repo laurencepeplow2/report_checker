@@ -58,11 +58,13 @@ def main() -> None:
     doc_id = sys.argv[1] if len(sys.argv) > 1 else TEST_DOC_ID
 
     config = load_config()
-    model = config.claude_model
+    model = config.model_for("rag report")
+    rewrite_model = config.model_for("suggested improvement")
     if not model:
         raise RuntimeError("claude_model_selection is empty in the config tab.")
     rules = load_rules()
-    print(f"Model: {model} | severity: {TEST_SEVERITY} (forced) | {len(rules)} active rules")
+    print(f"Models: checks={model} rewrites={rewrite_model} | "
+          f"severity: {TEST_SEVERITY} (forced) | {len(rules)} active rules")
 
     parsed = parse_document(
         doc_id,
@@ -116,9 +118,9 @@ def main() -> None:
             })
 
         # Second loop: feed the breached rules back and ask for a rewrite
-        # that fixes only those breaches.
-        if breached:
-            rewrite = run_rewrite(client, model, breached, chunk, config)
+        # that fixes only those breaches. Figures are not rewritten.
+        if breached and chunk.input_level != "figure":
+            rewrite = run_rewrite(client, rewrite_model, breached, chunk, config)
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
             suggestions[chunk.chunk_id] = rewrite.suggestion
@@ -143,6 +145,10 @@ def main() -> None:
             "tab": chunk.tab_title,
             "section": chunk.section,
             "input_level": chunk.input_level,
+            "heading_path": chunk.heading_path,
+            "approx_page": chunk.approx_page,
+            "tab_id": chunk.tab_id,
+            "heading_id": chunk.heading_id,
             "text": chunk.text,
             "image": (chunk.figures[0].image_path if chunk.figures else None),
             "suggestion": suggestions.get(chunk.chunk_id, ""),

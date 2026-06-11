@@ -30,7 +30,14 @@ class StyleGuideConfig:
     input_levels: list[str] = field(default_factory=list)
     role_context: str = ""
     severity_instructions: dict[str, str] = field(default_factory=dict)
+    # One model per AI step, from the unlabeled column next to
+    # claude_model_selection: "rag report", "overused words",
+    # "suggested improvement" (keys lowercased).
+    step_models: dict[str, str] = field(default_factory=dict)
     raw: dict[str, list[str]] = field(default_factory=dict)
+
+    def model_for(self, step: str) -> str:
+        return self.step_models.get(step.lower(), "") or self.claude_model
 
 
 @dataclass
@@ -97,6 +104,17 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
                 value = " ".join(row[idx].split())  # collapse stray whitespace
                 columns[header].append(value.lower() if header in VOCAB_COLUMNS else value)
 
+    # Per-step models: the unlabeled column directly before
+    # claude_model_selection names the AI step for each model row.
+    step_models: dict[str, str] = {}
+    if "claude_model_selection" in headers:
+        model_idx = headers.index("claude_model_selection")
+        for row in values[1:]:
+            step = row[model_idx - 1].strip().lower() if model_idx - 1 < len(row) else ""
+            model = row[model_idx].strip() if model_idx < len(row) else ""
+            if step and model:
+                step_models[step] = model
+
     def first(key: str) -> str:
         return columns.get(key, [""])[0] if columns.get(key) else ""
 
@@ -113,6 +131,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         input_levels=columns.get("input_level", []),
         role_context=first("role_context"),
         severity_instructions=severity_instructions,
+        step_models=step_models,
         raw=columns,
     )
 

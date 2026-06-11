@@ -28,14 +28,14 @@ from app.auth import docs_service
 DEFAULT_DOCUMENT_TYPES = ["report", "briefing", "pr"]
 
 # Section vocab comes from the master_report_checker config tab:
-# cover / executive summary / main / annex. Cover is handled separately
+# cover / executive summary / main text / annex. Cover is handled separately
 # (discarded except document_type); every numbered chapter incl.
-# recommendations is "main".
+# recommendations is "main text".
 SECTION_RULES = [  # first match on the lowercased tab title wins
     ("executive summary", "executive summary"),
     ("annex", "annex"),
 ]
-DEFAULT_SECTION = "main"
+DEFAULT_SECTION = "main text"
 
 
 @dataclass

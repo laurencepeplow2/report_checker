@@ -1,0 +1,8 @@
+google-api-python-client==2.149.0
+google-auth==2.35.0
+gspread==6.1.4
+python-dotenv==1.0.1
+requests==2.33.0
+anthropic==0.109.1
+fastapi==0.115.6
+uvicorn==0.32.1

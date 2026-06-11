@@ -1,0 +1,13 @@
+# Secrets
+service_account.json
+.env
+
+# Environments
+.venv/
+
+# Generated output
+data/
+*.log
+__pycache__/
+*.pyc
+results.db

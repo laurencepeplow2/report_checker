@@ -25,15 +25,17 @@ import requests
 
 from app.auth import docs_service
 
-DEFAULT_DOCUMENT_TYPES = ["report", "briefing", "slide deck", "pr"]
+DEFAULT_DOCUMENT_TYPES = ["report", "briefing", "pr"]
 
+# Section vocab comes from the master_report_checker config tab:
+# cover / executive summary / main / annex. Cover is handled separately
+# (discarded except document_type); every numbered chapter incl.
+# recommendations is "main".
 SECTION_RULES = [  # first match on the lowercased tab title wins
     ("executive summary", "executive summary"),
-    ("introduction", "introduction"),
-    ("conclusion", "conclusion"),
-    ("recommendation", "conclusion"),
     ("annex", "annex"),
 ]
+DEFAULT_SECTION = "main"
 
 
 @dataclass
@@ -110,7 +112,7 @@ def _section_for_tab(title: str) -> str:
     for needle, section in SECTION_RULES:
         if needle in lowered:
             return section
-    return "section"
+    return DEFAULT_SECTION
 
 
 def _extract_document_type(tab: dict, allowed_types: list[str]) -> str | None:

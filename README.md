@@ -4,11 +4,12 @@ Checks T&E draft reports against the team style guide using the Claude API.
 
 It downloads a Google Doc from Drive, segments it into chunks at three
 **input levels** (paragraph / figure / sub-section), tags each chunk with a
-**document_type** (report / briefing / slide deck / pr — read from the Cover
-tab) and a **section** (executive summary / introduction / section /
-conclusion — derived from the document tab titles), then runs the applicable
-checks from the `master_report_checker` Google Sheet and shows results in a
-reviewer web UI.
+**document_type** (report / briefing / pr — read from the Cover tab) and a
+**section** (cover / executive summary / main / annex — derived from the
+document tab titles), then runs the applicable checks from the
+`master_report_checker` Google Sheet and shows results in a reviewer web UI.
+Both vocabularies live in the sheet's `config` tab; everything is lowercased
+on read.
 
 Built for non-technical users: once set up, everything runs from the browser.
 

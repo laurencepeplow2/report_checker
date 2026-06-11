@@ -2,9 +2,9 @@
 
 A web app that pulls a Google Doc / Slides deck from Drive, segments it into
 chunks at three input levels (**paragraph / figure / sub-section incl.
-figures**), tags each chunk with **document_type** (report / briefing / slide
-deck / pr) and **section** (executive summary / introduction / section /
-conclusion), runs the applicable checks from the `master_report_checker`
+figures**), tags each chunk with **document_type** (report / briefing / pr)
+and **section** (cover / executive summary / main / annex — vocab from the
+config tab), runs the applicable checks from the `master_report_checker`
 Google Sheet style guide through the Claude API, and presents results in a
 reviewer UI that cycles chunk-by-chunk with colour-coded issue highlighting.
 
@@ -41,9 +41,8 @@ reviewer UI that cycles chunk-by-chunk with colour-coded issue highlighting.
   can nest (`childTabs`).
 - The **Cover tab is discarded** except for the `document_type` it declares.
 - `section` is derived from tab titles (lowercased): "executive summary" →
-  executive summary, "introduction" → introduction,
-  "conclusion"/"recommendation" → conclusion, otherwise → section.
-  Annex is tagged `annex` pending a decision on whether to check it.
+  executive summary, "annex" → annex, everything else (numbered chapters,
+  recommendations) → main.
 - Within a tab, Heading 1/2/3 paragraphs bound the sub-section chunks.
 
 ## Phases

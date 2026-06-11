@@ -4,13 +4,19 @@ All three work on the parsed document only — no Claude calls.
 """
 from __future__ import annotations
 
+import csv
 import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import requests
 
 from app.docs_parser import ParsedDocument
+
+# Domain words (T&E topics: transport, BEVs, standards...) that would always
+# top the frequency list. User-editable; one word per row, lowercase.
+WORD_EXCLUSIONS_CSV = Path(__file__).resolve().parent.parent / "word_exclusions.csv"
 
 REQUEST_TIMEOUT = 15
 USER_AGENT = (
@@ -81,15 +87,29 @@ def check_links(parsed: ParsedDocument) -> dict:
     }
 
 
+def load_word_exclusions() -> set[str]:
+    """Domain words excluded from the overuse count (word_exclusions.csv)."""
+    if not WORD_EXCLUSIONS_CSV.exists():
+        return set()
+    with WORD_EXCLUSIONS_CSV.open(encoding="utf-8-sig", newline="") as f:
+        return {
+            row["word"].strip().lower()
+            for row in csv.DictReader(f)
+            if row.get("word", "").strip()
+        }
+
+
 def word_frequency(parsed: ParsedDocument, top_n: int = 30) -> list[dict]:
-    """Most-used words across paragraph chunks, connecting words removed."""
+    """Most-used words across paragraph chunks, with connecting words and
+    T&E domain words (word_exclusions.csv) removed."""
+    excluded = STOPWORDS | load_word_exclusions()
     counter: Counter[str] = Counter()
     for chunk in parsed.chunks:
         if chunk.input_level != "paragraph":
             continue
         for word in WORD_RE.findall(chunk.text.lower()):
             word = word.replace("’", "'").strip("'-")
-            if len(word) > 2 and word not in STOPWORDS:
+            if len(word) > 2 and word not in excluded:
                 counter[word] += 1
     return [{"word": w, "count": c} for w, c in counter.most_common(top_n)]
 

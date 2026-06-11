@@ -262,6 +262,9 @@ function updateButtons() {
 /* ---------------- document health ---------------- */
 
 function renderHealth(data) {
+  if (data.approx_pages_excl_annex) {
+    el("stat-pages").textContent = String(data.approx_pages_excl_annex);
+  }
   // Broken links (+ unverified ones that need a human click)
   const links = data.links || {};
   const flagged = (links.links || []).filter((l) => l.state !== "ok");

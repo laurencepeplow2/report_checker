@@ -47,6 +47,10 @@ def main() -> None:
 
     words = word_frequency(parsed)
     headings = story(parsed)
+    pages_excl_annex = max(
+        (c.approx_page for c in parsed.chunks if c.section != "annex"),
+        default=0,
+    )
 
     # AI step: which overused words are a style issue (vs subject matter)?
     word_model = config.model_for("overused words")
@@ -70,6 +74,7 @@ def main() -> None:
             {
                 "doc_id": parsed.doc_id,
                 "title": parsed.title,
+                "approx_pages_excl_annex": pages_excl_annex,
                 "links": links,
                 "word_frequency": words,
                 "story": headings,

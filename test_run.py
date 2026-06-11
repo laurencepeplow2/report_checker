@@ -26,9 +26,52 @@ from app.styleguide import load_config, load_rules
 
 TEST_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
 DATA_DIR = Path(__file__).resolve().parent / "data"
+FLAG_HISTORY_CSV = Path(__file__).resolve().parent / "flag_history.csv"
 TEST_SEVERITY = "high"  # forced in test mode
 
 load_dotenv()
+
+
+def update_flag_history(title: str, rows: list[dict]) -> None:
+    """Per-rule red/amber counts for this document, appended as two new
+    columns ("<title> (r)" / "<title> (a)") per report over time. Re-running
+    the same report replaces its columns instead of duplicating them."""
+    counts: dict[str, dict] = {}
+    for row in rows:
+        entry = counts.setdefault(row["rule_id"], {
+            "rule_id": row["rule_id"], "category": row["category"],
+            "rule": row["rule"], "r": 0, "a": 0,
+        })
+        if row["flag"] in ("r", "a"):
+            entry[row["flag"]] += 1
+
+    base_fields = ["rule_id", "category", "rule"]
+    existing: dict[str, dict] = {}
+    old_fields: list[str] = []
+    if FLAG_HISTORY_CSV.exists():
+        with FLAG_HISTORY_CSV.open(encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            old_fields = [c for c in (reader.fieldnames or []) if c not in base_fields]
+            for row in reader:
+                existing[row["rule_id"]] = row
+
+    col_r, col_a = f"{title} (r)", f"{title} (a)"
+    fields = base_fields + [c for c in old_fields if c not in (col_r, col_a)] + [col_r, col_a]
+
+    merged: dict[str, dict] = {}
+    for rule_id, row in existing.items():
+        merged[rule_id] = {c: row.get(c, "") for c in fields}
+    for rule_id, entry in counts.items():
+        row = merged.setdefault(rule_id, {c: "" for c in fields})
+        row.update({
+            "rule_id": entry["rule_id"], "category": entry["category"],
+            "rule": entry["rule"], col_r: entry["r"], col_a: entry["a"],
+        })
+
+    with FLAG_HISTORY_CSV.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(merged[k] for k in sorted(merged))
 
 
 def pick_sample(chunks: list[Chunk]) -> list[Chunk]:
@@ -177,8 +220,11 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    update_flag_history(parsed.title, rows)
+    print(f"\nFlag history updated -> {FLAG_HISTORY_CSV.name}")
+
     flags = [r["flag"] for r in rows]
-    print(f"\n{len(rows)} checks -> {out_path} (+ test_run.json)")
+    print(f"{len(rows)} checks -> {out_path} (+ test_run.json)")
     print(f"Flags: r={flags.count('r')} a={flags.count('a')} g={flags.count('g')} "
           f"invalid={flags.count('invalid')}")
     print(f"Tokens: {total_in} in / {total_out} out "

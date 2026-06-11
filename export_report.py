@@ -59,6 +59,11 @@ def main() -> None:
         '<link rel="stylesheet" href="/static/styles.css">',
         f"<style>\n{css}\n</style>",
     )
+    logo = STATIC / "te_logo.webp"
+    if logo.exists():
+        logo_uri = ("data:image/webp;base64,"
+                    + base64.standard_b64encode(logo.read_bytes()).decode())
+        html = html.replace('src="/static/te_logo.webp"', f'src="{logo_uri}"')
     html = html.replace(
         '<script src="/static/app.js"></script>',
         f"<script>window.__RC_DATA__ = {payload};</script>\n<script>\n{js}\n</script>",

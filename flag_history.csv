@@ -1,0 +1,4 @@
+﻿rule_id,category,rule,test_report (r),test_report (a)
+rule-002,"Tone, style and talking about ourselves","While sentences should be as short as possible, if you have a long sentence like this one to explain and elaborate a specific idea, follow it up with a short one. It helps readability.",0,2
+rule-003,"Tone, style and talking about ourselves",Always write in active rather than passive tense (unless hideous). Rather than: It was the opinion of several experts that... Write: Several experts report that…,0,0
+rule-004,Figures,The footnotes should be no more than two lines long,0,0

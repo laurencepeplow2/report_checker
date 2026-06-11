@@ -1,19 +1,24 @@
+/* Transport & Environment brand palette (transportenvironment.org):
+   pink #C2447A, burgundy #59152C, charcoal #1C1C1C, orange #FF8754,
+   light orange #FBF5F0, peach #F0DCCD, green #034538, light green #73D68A */
 :root {
-  --red: #c0392b;
+  --red: #b3261e;
   --red-bg: #fbeae7;
   --red-line: #eac3bc;
-  --amber: #a8650a;
-  --amber-bg: #fdf3e2;
-  --amber-line: #ecd5ab;
-  --green: #1e6f3e;
-  --ink: #15212e;
-  --muted: #647082;
-  --line: #dfe4ea;
-  --bg: #eef1f5;
-  --accent: #0c4a5e;
-  --accent-soft: #e2eef2;
+  --amber: #b5541b;          /* darkened brand orange for contrast */
+  --amber-bg: #fdf0e6;
+  --amber-line: #f0cdb4;
+  --green: #034538;          /* brand green */
+  --ink: #1c1c1c;            /* brand charcoal */
+  --muted: #6f6259;
+  --line: #e8ddd4;
+  --bg: #fbf5f0;             /* brand light orange */
+  --accent: #c2447a;         /* brand pink */
+  --accent-dark: #59152c;    /* brand burgundy */
+  --accent-soft: #f7e6ee;
+  --peach: #f0dccd;
   --card: #ffffff;
-  --shadow: 0 1px 2px rgba(21, 33, 46, 0.06), 0 6px 18px rgba(21, 33, 46, 0.06);
+  --shadow: 0 1px 2px rgba(89, 21, 44, 0.05), 0 6px 18px rgba(89, 21, 44, 0.07);
 }
 
 * { box-sizing: border-box; }
@@ -23,7 +28,7 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(1100px 320px at 18% -120px, var(--accent-soft), transparent),
+    radial-gradient(1100px 320px at 18% -120px, var(--peach), transparent),
     var(--bg);
   min-height: 100vh;
 }
@@ -41,21 +46,9 @@ header {
 
 .brand { display: flex; align-items: center; gap: 0.8rem; }
 
-.logo {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  letter-spacing: 0.02em;
-  box-shadow: var(--shadow);
-}
+.logo-img { height: 2.2rem; width: auto; display: block; }
 
-h1 { font-size: 1.2rem; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 1.2rem; margin: 0; letter-spacing: -0.01em; color: var(--accent-dark); }
 .muted { color: var(--muted); font-size: 0.85rem; }
 .small { font-size: 0.8rem; margin: 0 0 0.7rem; }
 

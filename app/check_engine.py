@@ -56,6 +56,25 @@ FLAG_INSTRUCTION = (
     "g = the extract complies with the rule (green)"
 )
 
+REWRITE_INSTRUCTION = (
+    "You will receive an extract from the draft and the list of style "
+    "rules it breaches. Rewrite the extract so that every listed breach "
+    "is fixed. Make NO changes beyond what is needed to fix the listed "
+    "breaches: keep the meaning, facts, figures, names, terminology and "
+    "tone exactly as they are. Never introduce a claim, opinion or fact "
+    "that is not already in the extract - if fixing a breach requires an "
+    "extra sentence, build it only from what the extract already says. "
+    "Return only the rewritten extract - no preamble, no explanation, no "
+    "quotation marks around it."
+)
+
+REWRITE_FIGURE_INSTRUCTION = (
+    "You will receive a figure from the draft (as an image) and the list "
+    "of style rules it breaches. A figure cannot be rewritten as text, so "
+    "instead give the author short, concrete instructions to fix every "
+    "listed breach - at most three bullet points, nothing else."
+)
+
 
 def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
     role = (config.role_context if config else "") or ROLE_CONTEXT
@@ -135,6 +154,64 @@ def run_check(
         if flag in VALID_FLAGS:
             return CheckResult(flag, raw, input_tokens, output_tokens)
     return CheckResult("invalid", raw, input_tokens, output_tokens)
+
+
+@dataclass
+class RewriteResult:
+    suggestion: str
+    input_tokens: int
+    output_tokens: int
+
+
+def build_rewrite_user_text(rules: list[Rule], chunk: Chunk) -> str:
+    listed = "\n".join(f"{i}. ({r.category}) {r.text}" for i, r in enumerate(rules, 1))
+    label = (
+        f"Extract ({chunk.input_level} from the {chunk.section} of a "
+        f"{chunk.document_type}):"
+    )
+    if chunk.input_level == "figure":
+        caption = chunk.text or "(no caption or alt text provided)"
+        body = f"{label}\nThe figure is attached as an image. Caption/alt text: {caption}"
+    else:
+        body = f"{label}\n{chunk.text}"
+    return f"Rules breached:\n{listed}\n\n{body}"
+
+
+def run_rewrite(
+    client: anthropic.Anthropic,
+    model: str,
+    rules: list[Rule],
+    chunk: Chunk,
+    config: StyleGuideConfig | None = None,
+) -> RewriteResult:
+    """Second loop: rewrite the chunk fixing only the breached rules."""
+    role = (config.role_context if config else "") or ROLE_CONTEXT
+    instruction = (
+        REWRITE_FIGURE_INSTRUCTION if chunk.input_level == "figure"
+        else REWRITE_INSTRUCTION
+    )
+    content: list[dict] = [{"type": "text", "text": build_rewrite_user_text(rules, chunk)}]
+    if chunk.input_level == "figure":
+        figure = chunk.figures[0]
+        if figure.image_path and Path(figure.image_path).exists():
+            content.insert(0, _image_block(figure.image_path))
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=2000,
+        system=[{
+            "type": "text",
+            "text": f"{role}\n\n{instruction}",
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": content}],
+    )
+    suggestion = "".join(b.text for b in response.content if b.type == "text").strip()
+    return RewriteResult(
+        suggestion=suggestion,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:

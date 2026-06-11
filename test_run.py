@@ -18,7 +18,9 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-from app.check_engine import build_system, build_user_text, estimate_cost, run_check
+from app.check_engine import (
+    build_system, build_user_text, estimate_cost, run_check, run_rewrite,
+)
 from app.docs_parser import Chunk, parse_document
 from app.styleguide import load_config, load_rules
 
@@ -77,6 +79,7 @@ def main() -> None:
           f"severity instructions from sheet: {sorted(config.severity_instructions)}")
 
     rows = []
+    suggestions: dict[str, str] = {}  # chunk_id -> rewrite
     total_in = total_out = 0
     for chunk in sample:
         applicable = [
@@ -85,10 +88,13 @@ def main() -> None:
         ]
         print(f"\n{chunk.chunk_id} [{chunk.input_level} | {chunk.tab_title} | "
               f"{chunk.section}]: {len(applicable)} applicable rules")
+        breached: list = []
         for rule in applicable:
             result = run_check(client, model, TEST_SEVERITY, rule, chunk, config)
             total_in += result.input_tokens
             total_out += result.output_tokens
+            if result.flag in ("r", "a"):
+                breached.append(rule)
             print(f"  {rule.rule_id} -> {result.flag}")
             rows.append({
                 "chunk_id": chunk.chunk_id,
@@ -109,6 +115,19 @@ def main() -> None:
                 "output_tokens": result.output_tokens,
             })
 
+        # Second loop: feed the breached rules back and ask for a rewrite
+        # that fixes only those breaches.
+        if breached:
+            rewrite = run_rewrite(client, model, breached, chunk, config)
+            total_in += rewrite.input_tokens
+            total_out += rewrite.output_tokens
+            suggestions[chunk.chunk_id] = rewrite.suggestion
+            print(f"  rewrite ({len(breached)} breached rules) -> "
+                  f"{len(rewrite.suggestion)} chars")
+
+    for row in rows:
+        row["suggestion"] = suggestions.get(row["chunk_id"], "")
+
     DATA_DIR.mkdir(exist_ok=True)
     out_path = DATA_DIR / "test_run.csv"
     with out_path.open("w", newline="", encoding="utf-8-sig") as f:
@@ -126,6 +145,7 @@ def main() -> None:
             "input_level": chunk.input_level,
             "text": chunk.text,
             "image": (chunk.figures[0].image_path if chunk.figures else None),
+            "suggestion": suggestions.get(chunk.chunk_id, ""),
             "results": [],
         }
     for row in rows:

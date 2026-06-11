@@ -66,6 +66,8 @@ class ParsedDocument:
     title: str
     document_type: str
     chunks: list[Chunk]
+    links: list[dict] = field(default_factory=list)     # {url, text, tab}
+    headings: list[dict] = field(default_factory=list)  # {tab, level, text} in doc order
 
     def by_level(self, level: str) -> list[Chunk]:
         return [c for c in self.chunks if c.input_level == level]
@@ -91,6 +93,20 @@ def _table_text(table: dict) -> str:
             cells.append(cell_text.strip())
         rows.append(" | ".join(cells))
     return "\n".join(rows)
+
+
+def _paragraph_links(paragraph: dict, tab_title: str) -> list[dict]:
+    found = []
+    for el in paragraph.get("elements", []):
+        run = el.get("textRun", {})
+        url = run.get("textStyle", {}).get("link", {}).get("url")
+        if url:
+            found.append({
+                "url": url,
+                "text": run.get("content", "").strip(),
+                "tab": tab_title,
+            })
+    return found
 
 
 def _heading_level(paragraph: dict) -> int | None:
@@ -168,6 +184,8 @@ def parse_document(
     tabs = _flatten_tabs(doc.get("tabs", []))
     document_type = "unknown"
     chunks: list[Chunk] = []
+    links: list[dict] = []
+    headings: list[dict] = []
     order = 0
 
     for tab in tabs:
@@ -179,7 +197,8 @@ def parse_document(
             continue  # cover content is otherwise discarded
 
         section = _section_for_tab(title)
-        order = _parse_tab(tab, title, section, chunks, order, image_dir)
+        order = _parse_tab(tab, title, section, chunks, order, image_dir,
+                           links, headings)
 
     for chunk in chunks:
         chunk.document_type = document_type
@@ -189,6 +208,8 @@ def parse_document(
         title=doc.get("title", ""),
         document_type=document_type,
         chunks=chunks,
+        links=links,
+        headings=headings,
     )
 
 
@@ -199,11 +220,15 @@ def _parse_tab(
     chunks: list[Chunk],
     order: int,
     image_dir: Path | None,
+    links: list[dict],
+    headings: list[dict],
 ) -> int:
     document_tab = tab.get("documentTab", {})
     body = document_tab.get("body", {}).get("content", [])
     inline_objects = document_tab.get("inlineObjects", {})
     tab_id = tab.get("tabProperties", {}).get("tabId", "tab")
+
+    headings.append({"tab": tab_title, "level": 0, "text": tab_title})
 
     heading_stack: list[tuple[int, str]] = []  # (level, text)
 
@@ -239,6 +264,11 @@ def _parse_tab(
     para_index = fig_index = 0
     for element in body:
         if "table" in element:
+            for row in element["table"].get("tableRows", []):
+                for cell in row.get("tableCells", []):
+                    for cell_el in cell.get("content", []):
+                        if "paragraph" in cell_el:
+                            links.extend(_paragraph_links(cell_el["paragraph"], tab_title))
             text = _table_text(element["table"]).strip()
             if text:
                 chunks.append(Chunk(
@@ -260,6 +290,7 @@ def _parse_tab(
         if "paragraph" not in element:
             continue
         paragraph = element["paragraph"]
+        links.extend(_paragraph_links(paragraph, tab_title))
         level = _heading_level(paragraph)
         text = _paragraph_text(paragraph).strip()
 
@@ -271,6 +302,7 @@ def _parse_tab(
                     heading_stack.pop()
                 heading_stack.append((level, text))
                 sub_heading_path[:] = heading_path()
+                headings.append({"tab": tab_title, "level": level, "text": text})
             continue
 
         # Figures embedded in this paragraph

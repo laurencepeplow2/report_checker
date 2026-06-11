@@ -8,37 +8,86 @@
 </head>
 <body>
   <header>
-    <div>
-      <h1>Report Checker</h1>
-      <div id="doc-meta" class="muted"></div>
+    <div class="brand">
+      <div class="logo">RC</div>
+      <div>
+        <h1>Report Checker</h1>
+        <div id="doc-meta" class="muted"></div>
+      </div>
     </div>
-    <div class="controls">
-      <label for="level-select" class="muted">Input level</label>
-      <select id="level-select">
-        <option value="all">All levels</option>
-        <option value="paragraph">Paragraph</option>
-        <option value="figure">Figure</option>
-        <option value="subsection">Sub-section</option>
-      </select>
-      <button id="prev-btn" title="Previous chunk">&#8592; Prev</button>
-      <span id="position" class="muted"></span>
-      <button id="next-btn" title="Next chunk">Next &#8594;</button>
-    </div>
+    <nav>
+      <button class="nav-pill active" data-view="review">Review</button>
+      <button class="nav-pill" data-view="health">Document health</button>
+    </nav>
   </header>
 
-  <main>
-    <section id="chunk-panel" class="panel">
-      <div id="chunk-meta" class="chunk-meta"></div>
-      <div id="chunk-content"></div>
-    </section>
+  <!-- ===================== REVIEW ===================== -->
+  <section id="view-review" class="view">
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <label for="level-select" class="muted">Input level</label>
+        <select id="level-select">
+          <option value="all">All levels</option>
+          <option value="paragraph">Paragraph</option>
+          <option value="figure">Figure</option>
+          <option value="subsection">Sub-section</option>
+        </select>
+        <span id="issue-summary" class="muted"></span>
+      </div>
+      <div class="toolbar-right">
+        <button id="prev-btn">&#8592; Prev</button>
+        <span id="position" class="position"></span>
+        <button id="next-btn">Next &#8594;</button>
+      </div>
+    </div>
 
-    <section id="issues-panel" class="panel">
-      <h2 id="issues-heading">Checks</h2>
-      <div id="issue-cards"></div>
-    </section>
-  </main>
+    <div class="review-grid">
+      <div class="panel" id="extract-panel">
+        <div class="panel-title">Extract</div>
+        <div id="chunk-meta" class="chunk-meta"></div>
+        <div id="chunk-content" class="reading"></div>
+      </div>
 
-  <div id="empty-state" class="muted" hidden>No run data found. Run <code>test_run.py</code> first.</div>
+      <div class="panel" id="breach-panel">
+        <div class="panel-title">Rules breached <span id="breach-count" class="count-badge"></span></div>
+        <div id="issue-cards"></div>
+      </div>
+
+      <div class="panel" id="suggestion-panel">
+        <div class="panel-title">Suggested improvement</div>
+        <div id="suggestion-content" class="reading"></div>
+        <button id="copy-btn" hidden>Copy suggestion</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HEALTH ===================== -->
+  <section id="view-health" class="view" hidden>
+    <div class="health-grid">
+      <div class="panel">
+        <div class="panel-title">Broken links</div>
+        <div class="bignum-row">
+          <span id="broken-count" class="bignum">–</span>
+          <span id="links-meta" class="muted"></span>
+        </div>
+        <div id="broken-links"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Overused words</div>
+        <p class="muted small">Word counts across all paragraphs, connecting words removed.</p>
+        <div id="word-bars"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">What is my story?</div>
+        <p class="muted small">Every section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
+        <div id="story-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="empty-state" class="muted" hidden></div>
 
   <script src="/static/app.js"></script>
 </body>

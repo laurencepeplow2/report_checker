@@ -64,9 +64,22 @@ console summary of chunks per tab / input level.
 
 Samples one figure + one paragraph each from the executive summary, main
 text and recommendations, runs every applicable `TE_style_rules` rule at
-severity `high`, and writes `data/test_run.csv` (full prompts + r/a/g
-flags) and `data/test_run.json` (for the UI). Needs `ANTHROPIC_API_KEY`
-in `.env`.
+severity `high`, then a second loop per breached chunk: the flagged
+rules are fed back and Claude rewrites the extract fixing only those
+breaches. Writes `data/test_run.csv` (full prompts + r/a/g flags +
+suggestions) and `data/test_run.json` (for the UI). Needs
+`ANTHROPIC_API_KEY` in `.env`.
+
+## Run the document health analyses (no AI)
+
+```powershell
+.venv\Scripts\python.exe analyse_doc.py
+```
+
+HTTP-checks every hyperlink in the doc (broken-link count), counts word
+frequency with connecting words removed (overused words), and lists all
+section/sub-section headers in order ("what is my story?"). Writes
+`data/analysis.json`.
 
 ## Run the reviewer UI
 
@@ -74,9 +87,13 @@ in `.env`.
 .venv\Scripts\python.exe -m uvicorn app.main:app --port 8077
 ```
 
-Open http://127.0.0.1:8077 — cycle chunk by chunk (arrow keys work),
-filter by input level, see red/amber/green cards per rule and the figure
-images inline.
+Open http://127.0.0.1:8077:
+
+- **Review** — cycles through flagged chunks only (greens excluded),
+  three windows: extract | rules breached | suggested improvement, with
+  an input-level filter and copy-to-clipboard for suggestions.
+- **Document health** — broken links, overused words, and the heading
+  story, from `analyse_doc.py`.
 
 ## Project structure
 

@@ -27,6 +27,14 @@ def run_data() -> dict:
     return data
 
 
+@app.get("/api/analysis")
+def analysis() -> dict:
+    path = DATA_DIR / "analysis.json"
+    if not path.exists():
+        raise HTTPException(404, "No analysis yet - run analyse_doc.py first.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")

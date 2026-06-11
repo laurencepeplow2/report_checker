@@ -234,6 +234,7 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   background: var(--red-bg);
   color: var(--red);
 }
+.link-row .status.unverified { background: var(--amber-bg); color: var(--amber); }
 .link-row .where { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
 
 .word-row {

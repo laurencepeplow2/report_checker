@@ -135,27 +135,32 @@ function updateButtons() {
 /* ---------------- document health ---------------- */
 
 function renderHealth(data) {
-  // Broken links
+  // Broken links (+ unverified ones that need a human click)
   const links = data.links || {};
-  const broken = (links.links || []).filter((l) => l.broken);
+  const flagged = (links.links || []).filter((l) => l.state !== "ok");
   const bignum = el("broken-count");
   bignum.textContent = String(links.broken_count ?? 0);
   bignum.classList.add(links.broken_count ? "bad" : "good");
+  const unverified = links.unverified_count ?? 0;
   el("links-meta").textContent =
-    `of ${links.unique_links ?? 0} unique links checked (${links.total_links ?? 0} total) - no AI involved`;
+    `of ${links.unique_links ?? 0} unique links checked (${links.total_links ?? 0} total)` +
+    (unverified ? ` - plus ${unverified} unverified` : "") + " - no AI involved";
   const list = el("broken-links");
   list.innerHTML = "";
-  for (const link of broken) {
+  for (const link of flagged) {
     const row = document.createElement("div");
     row.className = "link-row";
     row.innerHTML = `<span class="status"></span><a target="_blank" rel="noopener"></a>
                      <div class="where"></div>`;
-    row.querySelector(".status").textContent = link.status;
+    const status = row.querySelector(".status");
+    status.textContent = link.state === "unverified" ? `? ${link.status}` : link.status;
+    status.classList.toggle("unverified", link.state === "unverified");
     const a = row.querySelector("a");
     a.href = link.url;
     a.textContent = link.url;
     row.querySelector(".where").textContent =
-      `link text: "${link.text}" - in: ${link.tabs.join(", ")}`;
+      `link text: "${link.text}" - in: ${link.tabs.join(", ")}` +
+      (link.note ? ` - ${link.note}` : "");
     list.appendChild(row);
   }
 

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>T&amp;E Report Checker</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Report Checker</h1>
+      <div id="doc-meta" class="muted"></div>
+    </div>
+    <div class="controls">
+      <label for="level-select" class="muted">Input level</label>
+      <select id="level-select">
+        <option value="all">All levels</option>
+        <option value="paragraph">Paragraph</option>
+        <option value="figure">Figure</option>
+        <option value="subsection">Sub-section</option>
+      </select>
+      <button id="prev-btn" title="Previous chunk">&#8592; Prev</button>
+      <span id="position" class="muted"></span>
+      <button id="next-btn" title="Next chunk">Next &#8594;</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="chunk-panel" class="panel">
+      <div id="chunk-meta" class="chunk-meta"></div>
+      <div id="chunk-content"></div>
+    </section>
+
+    <section id="issues-panel" class="panel">
+      <h2 id="issues-heading">Checks</h2>
+      <div id="issue-cards"></div>
+    </section>
+  </main>
+
+  <div id="empty-state" class="muted" hidden>No run data found. Run <code>test_run.py</code> first.</div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

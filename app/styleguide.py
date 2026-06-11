@@ -28,6 +28,8 @@ class StyleGuideConfig:
     document_types: list[str] = field(default_factory=list)
     sections: list[str] = field(default_factory=list)
     input_levels: list[str] = field(default_factory=list)
+    role_context: str = ""
+    severity_instructions: dict[str, str] = field(default_factory=dict)
     raw: dict[str, list[str]] = field(default_factory=dict)
 
 
@@ -66,13 +68,19 @@ def find_sheet_id() -> str:
     return files[0]["id"]
 
 
+# Columns holding controlled vocab are lowercased; prompt-text columns
+# keep their case as written in the sheet.
+VOCAB_COLUMNS = {"input_level", "document_type", "section", "check_severity"}
+
+
 def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     """Read the config tab.
 
-    Layout assumption (validated against the real sheet): row 1 holds
-    variable names, values listed beneath each header. Single-value
-    variables (claude_model, check_severity) take the first value; list
-    variables keep every non-empty cell.
+    Layout (validated against the real sheet): row 1 holds variable names,
+    values listed beneath each header. The `flag_instruction` column holds
+    the per-severity instruction, paired row-by-row with `check_severity`
+    (low/mid/high). `role_context:` (trailing colon in the sheet) holds the
+    system-prompt role text.
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
@@ -81,15 +89,21 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     if not values:
         raise RuntimeError(f"'{CONFIG_TAB}' tab is empty or missing.")
 
-    headers = [h.strip().lower() for h in values[0]]
+    headers = [h.strip().lower().rstrip(":") for h in values[0]]
     columns: dict[str, list[str]] = {h: [] for h in headers if h}
     for row in values[1:]:
         for idx, header in enumerate(headers):
             if header and idx < len(row) and row[idx].strip():
-                columns[header].append(row[idx].strip().lower())
+                value = " ".join(row[idx].split())  # collapse stray whitespace
+                columns[header].append(value.lower() if header in VOCAB_COLUMNS else value)
 
     def first(key: str) -> str:
         return columns.get(key, [""])[0] if columns.get(key) else ""
+
+    severity_instructions = dict(zip(
+        columns.get("check_severity", []),
+        columns.get("flag_instruction", []),
+    ))
 
     return StyleGuideConfig(
         claude_model=first("claude_model_selection"),
@@ -97,6 +111,8 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         document_types=columns.get("document_type", []),
         sections=columns.get("section", []),
         input_levels=columns.get("input_level", []),
+        role_context=first("role_context"),
+        severity_instructions=severity_instructions,
         raw=columns,
     )
 

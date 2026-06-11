@@ -56,6 +56,28 @@ copy .env.example .env
 Outputs `data/chunks.json` and figure images in `data/images/`, plus a
 console summary of chunks per tab / input level.
 
+## Run the test-mode checks
+
+```powershell
+.venv\Scripts\python.exe test_run.py
+```
+
+Samples one figure + one paragraph each from the executive summary, main
+text and recommendations, runs every applicable `TE_style_rules` rule at
+severity `high`, and writes `data/test_run.csv` (full prompts + r/a/g
+flags) and `data/test_run.json` (for the UI). Needs `ANTHROPIC_API_KEY`
+in `.env`.
+
+## Run the reviewer UI
+
+```powershell
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8077
+```
+
+Open http://127.0.0.1:8077 — cycle chunk by chunk (arrow keys work),
+filter by input level, see red/amber/green cards per rule and the figure
+images inline.
+
 ## Project structure
 
 ```

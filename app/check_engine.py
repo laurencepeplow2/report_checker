@@ -4,9 +4,10 @@ One API call per (chunk, rule). The response is constrained to a single
 flag letter to keep output tokens minimal:
     r = red (clear violation), a = amber (borderline), g = green (complies)
 
-The role/context, severity instructions and flag instruction below are
-DEFAULTS pending their move into the master_report_checker config tab —
-keep the wording in sync with the sheet once added.
+The role/context and per-severity instructions come from the
+master_report_checker config tab (`role_context`, `flag_instruction`
+paired with `check_severity`); the texts below are fallbacks for when a
+config value is missing.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from pathlib import Path
 import anthropic
 
 from app.docs_parser import Chunk
-from app.styleguide import Rule
+from app.styleguide import Rule, StyleGuideConfig
 
 VALID_FLAGS = {"r", "a", "g"}
 
@@ -56,8 +57,13 @@ FLAG_INSTRUCTION = (
 )
 
 
-def build_system(severity: str) -> str:
-    return "\n\n".join([ROLE_CONTEXT, SEVERITY_INSTRUCTIONS[severity], FLAG_INSTRUCTION])
+def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
+    role = (config.role_context if config else "") or ROLE_CONTEXT
+    severity_text = (
+        (config.severity_instructions.get(severity, "") if config else "")
+        or SEVERITY_INSTRUCTIONS[severity]
+    )
+    return "\n\n".join([role, severity_text, FLAG_INSTRUCTION])
 
 
 def build_user_text(rule: Rule, chunk: Chunk) -> str:
@@ -96,6 +102,7 @@ def run_check(
     severity: str,
     rule: Rule,
     chunk: Chunk,
+    config: StyleGuideConfig | None = None,
 ) -> CheckResult:
     content: list[dict] = [{"type": "text", "text": build_user_text(rule, chunk)}]
     if chunk.input_level == "figure":
@@ -116,7 +123,7 @@ def run_check(
             max_tokens=4,
             system=[{
                 "type": "text",
-                "text": build_system(severity),
+                "text": build_system(severity, config),
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=messages,

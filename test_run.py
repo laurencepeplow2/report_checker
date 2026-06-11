@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import json
 import sys
 from pathlib import Path
 
@@ -71,7 +72,9 @@ def main() -> None:
           f"{len(parsed.chunks)} chunks; sampled {len(sample)}")
 
     client = anthropic.Anthropic()
-    system_prompt = build_system(TEST_SEVERITY)
+    system_prompt = build_system(TEST_SEVERITY, config)
+    print(f"role_context from sheet: {'yes' if config.role_context else 'NO - using fallback'}; "
+          f"severity instructions from sheet: {sorted(config.severity_instructions)}")
 
     rows = []
     total_in = total_out = 0
@@ -83,7 +86,7 @@ def main() -> None:
         print(f"\n{chunk.chunk_id} [{chunk.input_level} | {chunk.tab_title} | "
               f"{chunk.section}]: {len(applicable)} applicable rules")
         for rule in applicable:
-            result = run_check(client, model, TEST_SEVERITY, rule, chunk)
+            result = run_check(client, model, TEST_SEVERITY, rule, chunk, config)
             total_in += result.input_tokens
             total_out += result.output_tokens
             print(f"  {rule.rule_id} -> {result.flag}")
@@ -113,8 +116,43 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
 
+    # JSON for the reviewer UI: chunks in document order with their results
+    by_chunk: dict[str, dict] = {}
+    for chunk in sample:
+        by_chunk[chunk.chunk_id] = {
+            "chunk_id": chunk.chunk_id,
+            "tab": chunk.tab_title,
+            "section": chunk.section,
+            "input_level": chunk.input_level,
+            "text": chunk.text,
+            "image": (chunk.figures[0].image_path if chunk.figures else None),
+            "results": [],
+        }
+    for row in rows:
+        by_chunk[row["chunk_id"]]["results"].append({
+            "rule_id": row["rule_id"],
+            "category": row["category"],
+            "rule": row["rule"],
+            "flag": row["flag"],
+        })
+    (DATA_DIR / "test_run.json").write_text(
+        json.dumps(
+            {
+                "doc_id": parsed.doc_id,
+                "title": parsed.title,
+                "document_type": parsed.document_type,
+                "severity": TEST_SEVERITY,
+                "model": model,
+                "chunks": list(by_chunk.values()),
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
     flags = [r["flag"] for r in rows]
-    print(f"\n{len(rows)} checks -> {out_path}")
+    print(f"\n{len(rows)} checks -> {out_path} (+ test_run.json)")
     print(f"Flags: r={flags.count('r')} a={flags.count('a')} g={flags.count('g')} "
           f"invalid={flags.count('invalid')}")
     print(f"Tokens: {total_in} in / {total_out} out "

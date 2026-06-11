@@ -63,6 +63,8 @@ function render() {
   if (!view.length) {
     content.textContent = "No flagged chunks at this input level.";
     content.classList.add("empty");
+    suggestion.textContent = "Nothing to improve here.";
+    suggestion.classList.add("empty");
     el("breach-count").textContent = "0";
     el("breach-count").classList.add("none");
     el("position").textContent = "0 / 0";
@@ -115,12 +117,12 @@ function render() {
     cards.appendChild(card);
   }
 
+  suggestion.classList.toggle("empty", !chunk.suggestion);
   if (chunk.suggestion) {
     suggestion.textContent = chunk.suggestion;
     el("copy-btn").hidden = false;
   } else {
     suggestion.textContent = "No suggestion generated for this chunk.";
-    suggestion.classList.add("empty");
   }
 
   el("position").textContent = `${index + 1} / ${view.length}`;

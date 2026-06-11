@@ -163,7 +163,19 @@ def word_frequency(parsed: ParsedDocument, top_n: int = 30) -> list[dict]:
     return [{"word": w, "count": c} for w, c in counter.most_common(top_n)]
 
 
+# A real section/sub-section header starts with a number ("1. Value",
+# "2.3 Lithium") or a roman-numeral compound used in the annex ("I.1
+# Production and sales"). Heading-styled key-message statements and lines
+# like "Key findings" don't, and are not part of the story.
+SECTION_NUMBER_RE = re.compile(
+    r"^\s*(?:\d+(?:\.\d+)*|[IVXLCDM]+(?:\.\d+)+)[.)]?\s", re.IGNORECASE
+)
+
+
 def story(parsed: ParsedDocument) -> list[dict]:
-    """Tab titles + section/sub-section headers in document order —
+    """Tab titles + numbered section/sub-section headers in document order —
     read top to bottom: does this tell a story?"""
-    return parsed.headings
+    return [
+        h for h in parsed.headings
+        if h["level"] == 0 or SECTION_NUMBER_RE.match(h["text"])
+    ]

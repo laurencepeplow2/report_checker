@@ -42,6 +42,13 @@ class StyleGuideConfig:
     def model_for(self, step: str) -> str:
         return self.step_models.get(step.lower(), "") or self.claude_model
 
+    def prompt_override(self, column: str) -> str:
+        """First value of any config column - lets every AI instruction be
+        overridden from the sheet without a code change. Returns "" when
+        the column is absent (callers fall back to the in-code default)."""
+        values = self.raw.get(column.lower(), [])
+        return values[0].strip() if values else ""
+
     @property
     def report_doc_id(self) -> str:
         match = re.search(r"/document/d/([A-Za-z0-9_-]+)", self.report_link)

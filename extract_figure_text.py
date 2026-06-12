@@ -76,6 +76,20 @@ def alpha_words(text: str) -> int:
     return sum(1 for w in re.findall(r"[A-Za-z]{2,}", text))
 
 
+def is_legend(text: str) -> bool:
+    """Legend lines: colour swatches OCR as dashes/bullets, and series
+    names are short ALL-CAPS tokens (LOW, EU, REF...) or marker-prefixed
+    phrases ("— Commission proposal —Additional weakening..."). A prose
+    subtitle that merely mentions acronyms ("...produced in the EU...")
+    is NOT a legend - caps tokens only count when the line is mostly
+    made of them."""
+    markers = len(re.findall(r"[—•■▪-]\s*\w", text))
+    caps_tokens = len(re.findall(r"\b[A-Z]{2,5}\b\s*\+?", text))
+    mostly_tokens = alpha_words(text) <= caps_tokens + 2
+    return markers >= 2 or (caps_tokens >= 2 and mostly_tokens) or bool(
+        re.match(r"^\W*(risk category|legend)\b", text, re.IGNORECASE))
+
+
 def group_block(lines: list[Line]) -> list[list[Line]]:
     """Split consecutive lines into blocks on vertical gaps > 1.6x line height."""
     blocks: list[list[Line]] = []
@@ -117,20 +131,32 @@ def classify(lines: list[Line], img_height: int, img_width: int) -> dict:
         header.append(line)
         rest_start = i + 1
 
-    # Subheader: the block sitting directly under the header (subtitle or
-    # legend). If the next text is far below (chart content), there is none.
-    # In-chart furniture is excluded: series labels hug the right edge and
-    # axis ticks are numeric.
+    # Subheader: the block sitting directly under the header (subtitle),
+    # with legend lines split out into their own bucket. If the next text
+    # is far below (chart content), there is none. In-chart furniture is
+    # excluded: series labels hug the right edge, axis ticks are numeric.
     subheader: list[Line] = []
+    legend: list[Line] = []
     if header:
         after = lines[rest_start:]
         blocks = group_block(after)
-        if blocks and blocks[0] and \
-                blocks[0][0].y - header[-1].bottom < 4.5 * max(median_h, 10):
-            subheader = [
-                l for l in blocks[0]
-                if l.x < 0.45 * img_width and alpha_words(l.text) >= 1
-            ]
+        # subtitle/legend can be the first block, or the first two when a
+        # subtitle is followed by a separate legend row
+        top_blocks = [
+            b for b in blocks[:2]
+            if b and b[0].y - header[-1].bottom < 4.5 * max(median_h, 10)
+               and b[0].y < 0.45 * img_height
+        ]
+        for block_index, block in enumerate(top_blocks):
+            for line in block:
+                if line.x >= 0.45 * img_width or alpha_words(line.text) < 1:
+                    continue  # in-chart furniture
+                if is_legend(line.text):
+                    legend.append(line)
+                elif block_index == 0:
+                    # subtitles only ever sit in the first block under the
+                    # header; later blocks are legend rows or chart content
+                    subheader.append(line)
 
     # Footer: bottom-band lines, logo excluded. Prefer everything from the
     # first "Source:/Note:" line down; otherwise fall back to prose lines
@@ -145,7 +171,8 @@ def classify(lines: list[Line], img_height: int, img_width: int) -> dict:
     else:
         footer = [l for l in band if alpha_words(l.text) >= 4]
 
-    return {"header": header, "subheader": subheader, "footer": footer}
+    return {"header": header, "subheader": subheader, "legend": legend,
+            "footer": footer}
 
 
 def block_text(block: list[Line]) -> str:
@@ -163,23 +190,36 @@ async def main() -> None:
         lines = await ocr_lines(image)
         blocks = classify(lines, image.height, image.width)
         row = {"image": path.name, "ocr_lines_total": len(lines)}
-        for name in ("header", "subheader", "footer"):
+        for name in ("header", "subheader", "legend", "footer"):
             block = blocks[name]
             row[f"{name}_text"] = block_text(block)
             row[f"{name}_lines"] = len(block)
         row["footer_over_2_lines"] = "yes" if row["footer_lines"] > 2 else "no"
         rows.append(row)
         print(f"{path.name}: header {row['header_lines']}L | "
-              f"subheader {row['subheader_lines']}L | footer {row['footer_lines']}L")
+              f"subheader {row['subheader_lines']}L | "
+              f"legend {row['legend_lines']}L | footer {row['footer_lines']}L")
         print(f"   H: {row['header_text'][:90]}")
         print(f"   S: {row['subheader_text'][:90]}")
+        print(f"   L: {row['legend_text'][:90]}")
         print(f"   F: {row['footer_text'][:90]}")
 
-    with OUT_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+    out = OUT_CSV
+    try:
+        f = out.open("w", newline="", encoding="utf-8-sig")
+    except PermissionError:
+        # the CSV is open in Excel - write alongside it instead of failing
+        from datetime import datetime
+        out = OUT_CSV.with_name(
+            f"figure_text_{datetime.now():%H%M%S}.csv")
+        f = out.open("w", newline="", encoding="utf-8-sig")
+        print(f"WARNING: {OUT_CSV.name} is locked (open in Excel?) - "
+              f"writing {out.name} instead")
+    with f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"\n{len(rows)} figures -> {OUT_CSV}")
+    print(f"\n{len(rows)} figures -> {out}")
 
 
 if __name__ == "__main__":

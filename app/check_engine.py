@@ -130,13 +130,18 @@ WORD_FLAG_SCHEMA = {
 }
 
 
+def _override(config: StyleGuideConfig | None, column: str, fallback: str) -> str:
+    return (config.prompt_override(column) if config else "") or fallback
+
+
 def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
     role = (config.role_context if config else "") or ROLE_CONTEXT
     severity_text = (
         (config.severity_instructions.get(severity, "") if config else "")
         or SEVERITY_INSTRUCTIONS[severity]
     )
-    return "\n\n".join([role, severity_text, FLAG_INSTRUCTION])
+    flag_text = _override(config, "flag_letters_instruction", FLAG_INSTRUCTION)
+    return "\n\n".join([role, severity_text, flag_text])
 
 
 FORMATTING_NOTE = (
@@ -281,12 +286,21 @@ def run_rewrite(
     Figures are not rewritten - the caller skips figure chunks.
     """
     role = (config.role_context if config else "") or ROLE_CONTEXT
+    rewrite_text = _override(config, "rewrite_instruction", REWRITE_INSTRUCTION)
+    context_note = _override(config, "rewrite_context_note", REWRITE_CONTEXT_NOTE)
+    system_text = f"{role}\n\n{rewrite_text}\n\n{context_note}"
+    # Optional pages of "perfectly written" T&E text from config - sits in
+    # the cached system prefix, so repeat calls read it at ~10% token cost.
+    exemplar = _override(config, "style_exemplar", "")
+    if exemplar:
+        system_text += ("\n\nThe following passages show the exact style "
+                        f"your rewrites must match:\n{exemplar}")
     response = client.messages.create(
         model=model,
         max_tokens=2000,
         system=[{
             "type": "text",
-            "text": f"{role}\n\n{REWRITE_INSTRUCTION}\n\n{REWRITE_CONTEXT_NOTE}",
+            "text": system_text,
             "cache_control": {"type": "ephemeral"},
         }],
         messages=[{
@@ -316,7 +330,7 @@ def run_word_flagging(
     response = client.messages.create(
         model=model,
         max_tokens=1500,
-        system=WORD_FLAG_INSTRUCTION,
+        system=_override(config, "word_flag_instruction", WORD_FLAG_INSTRUCTION),
         messages=[{"role": "user", "content": f"Most frequent words:\n{listing}"}],
         output_config={"format": {"type": "json_schema", "schema": WORD_FLAG_SCHEMA}},
     )
@@ -349,7 +363,7 @@ def run_story_flag(
     response = client.messages.create(
         model=model,
         max_tokens=1000,
-        system=STORY_FLAG_INSTRUCTION,
+        system=_override(config, "story_flag_instruction", STORY_FLAG_INSTRUCTION),
         messages=[{
             "role": "user",
             "content": f"Section and sub-section titles, in order:\n{listing}",

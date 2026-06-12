@@ -43,9 +43,38 @@ async function fetchJson(path, embeddedKey) {
 }
 
 async function load() {
+  // Report selector: the config's report_link can hold several documents.
+  // Hidden for exports (single embedded report) and single-report setups.
+  if (!window.__RC_DATA__) {
+    let reportList = [];
+    try { reportList = await fetchJson("/api/reports", "reports"); } catch {}
+    const sel = el("report-select");
+    if (reportList.length > 1) {
+      sel.hidden = false;
+      for (const r of reportList) {
+        const opt = document.createElement("option");
+        opt.value = r.doc_id;
+        opt.textContent = r.title + (r.mode ? ` (${r.mode})` : "");
+        sel.appendChild(opt);
+      }
+      const saved = localStorage.getItem("rc-report");
+      if (saved && reportList.some((r) => r.doc_id === saved)) sel.value = saved;
+      sel.addEventListener("change", () => {
+        localStorage.setItem("rc-report", sel.value);
+        loadReport(sel.value);
+      });
+      await loadReport(sel.value);
+      return;
+    }
+  }
+  await loadReport("");
+}
+
+async function loadReport(doc) {
+  const query = doc ? `?doc=${encodeURIComponent(doc)}` : "";
   let runData = null;
   try {
-    runData = await fetchJson("/api/run-data", "run");
+    runData = await fetchJson(`/api/run-data${query}`, "run");
   } catch {
     document.querySelectorAll(".view").forEach((v) => (v.hidden = true));
     const empty = el("empty-state");
@@ -53,6 +82,10 @@ async function load() {
     empty.innerHTML = "No run data found. Run <code>test_run.py</code> first.";
     return;
   }
+  document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "view-review"));
+  document.querySelectorAll(".nav-pill").forEach((p) =>
+    p.classList.toggle("active", p.dataset.view === "review"));
+  el("empty-state").hidden = true;
 
   docId = runData.doc_id || "";
   loadChecked();
@@ -66,8 +99,10 @@ async function load() {
   el("issue-summary").textContent =
     `${allChunks.length} of ${total} checked chunks have issues`;
 
-  // Section toggle: report tabs in document order
+  // Section toggle: report tabs in document order (rebuilt per report)
   const sectionSelect = el("section-select");
+  while (sectionSelect.options.length > 1) sectionSelect.remove(1);
+  sectionSelect.value = "all";
   const seen = new Set();
   for (const c of runData.chunks) {
     if (!seen.has(c.tab)) {
@@ -90,10 +125,11 @@ async function load() {
   el("stat-red").textContent = String(reds);
   el("stat-amber").textContent = String(ambers);
 
+  el("level-select").value = "all";
   applyFilter();
 
   try {
-    renderHealth(await fetchJson("/api/analysis", "analysis"));
+    renderHealth(await fetchJson(`/api/analysis${query}`, "analysis"));
   } catch { /* health analyses not run yet */ }
 }
 
@@ -370,6 +406,16 @@ function renderHealth(data) {
     narrow.map((n) =>
       `${n.tab}${n.heading && n.heading !== n.tab ? ` - "${n.heading}"` : ""}`
       + ` - ${n.pct_of_column}% of column width`)
+  );
+  const longFooters = layout.long_footers || [];
+  addCheck(
+    longFooters.length === 0,
+    longFooters.length === 0
+      ? "Figure footers at most 2 lines"
+      : `${longFooters.length} figure footer(s) over 2 lines`,
+    longFooters.map((f) =>
+      `${f.tab}${f.heading && f.heading !== f.tab ? ` - "${f.heading}"` : ""}`
+      + ` - ${f.lines} lines: "${f.text}"`)
   );
 
   // Story flag (AI verdict on the heading sequence)

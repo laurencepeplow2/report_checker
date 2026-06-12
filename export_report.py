@@ -32,14 +32,12 @@ def image_data_uri(path: str) -> str | None:
     return "data:image/png;base64," + base64.standard_b64encode(p.read_bytes()).decode()
 
 
-def main() -> None:
-    run_path = DATA / "test_run.json"
+def export_one(run_path: Path, analysis_path: Path) -> None:
     if not run_path.exists():
-        raise SystemExit("No run data - run test_run.py first.")
+        raise SystemExit(f"No run data at {run_path} - run test_run.py first.")
     run = json.loads(run_path.read_text(encoding="utf-8"))
 
     analysis = {}
-    analysis_path = DATA / "analysis.json"
     if analysis_path.exists():
         analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
 
@@ -78,6 +76,22 @@ def main() -> None:
     print(f"-> {out_file}")
     print(f"   ({out_file.stat().st_size / 1024:.0f} KB, fully self-contained - "
           "send the folder or just this file)")
+
+
+def main() -> None:
+    """Export every report listed in data/runs/index.json (or the legacy
+    single-report files in data/)."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from app.runs import RUNS_DIR, list_reports
+
+    reports = list_reports()
+    if reports:
+        for entry in reports:
+            run_folder = RUNS_DIR / entry["doc_id"]
+            export_one(run_folder / "test_run.json", run_folder / "analysis.json")
+    else:
+        export_one(DATA / "test_run.json", DATA / "analysis.json")
 
 
 if __name__ == "__main__":

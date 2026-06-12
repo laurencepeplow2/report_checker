@@ -186,15 +186,23 @@ def story(parsed: ParsedDocument) -> list[dict]:
 FULL_WIDTH_THRESHOLD = 0.90
 
 
+MAX_FOOTER_LINES = 2
+
+
+def _chunk_heading(chunk) -> str:
+    return chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
+
+
 def figure_layout(parsed: ParsedDocument) -> dict:
     """Deterministic layout checks on figures (no AI):
     - max one figure per sub-section
     - figures inserted at full column width
+    - figure footers at most two lines (via local OCR)
     """
     multi = []
     for chunk in parsed.chunks:
         if chunk.input_level == "subsection" and len(chunk.figures) > 1:
-            heading = chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
+            heading = _chunk_heading(chunk)
             multi.append({
                 "tab": chunk.tab_title,
                 "heading": heading,
@@ -209,7 +217,7 @@ def figure_layout(parsed: ParsedDocument) -> dict:
                 continue
             width = chunk.figures[0].width_pt
             if width and width < FULL_WIDTH_THRESHOLD * column:
-                heading = chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
+                heading = _chunk_heading(chunk)
                 narrow.append({
                     "figure_id": chunk.chunk_id,
                     "tab": chunk.tab_title,
@@ -218,8 +226,36 @@ def figure_layout(parsed: ParsedDocument) -> dict:
                     "pct_of_column": round(100 * width / column),
                 })
 
+    # Footer length via local OCR (the "coded" footer rule). Needs the
+    # figure images on disk; silently skipped if OCR is unavailable.
+    long_footers = []
+    try:
+        from app.figure_parts import extract_parts_path
+        for chunk in parsed.chunks:
+            if chunk.input_level != "figure" or not chunk.figures:
+                continue
+            image_path = chunk.figures[0].image_path
+            if not image_path:
+                continue
+            try:
+                footer = extract_parts_path(image_path).get("footer", {})
+            except Exception:  # noqa: BLE001 — one bad image shouldn't kill the run
+                continue
+            if footer.get("lines", 0) > MAX_FOOTER_LINES:
+                heading = _chunk_heading(chunk)
+                long_footers.append({
+                    "figure_id": chunk.chunk_id,
+                    "tab": chunk.tab_title,
+                    "heading": heading,
+                    "lines": footer["lines"],
+                    "text": footer.get("text", "")[:160],
+                })
+    except ImportError:
+        pass  # winocr not available on this platform
+
     return {
         "column_width_pt": round(column),
         "multi_figure_subsections": multi,
         "narrow_figures": narrow,
+        "long_footers": long_footers,
     }

@@ -12,6 +12,8 @@ config value is missing.
 from __future__ import annotations
 
 import base64
+import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -138,7 +140,7 @@ def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
     role = (config.role_context if config else "") or ROLE_CONTEXT
     severity_text = (
         (config.severity_instructions.get(severity, "") if config else "")
-        or SEVERITY_INSTRUCTIONS[severity]
+        or SEVERITY_INSTRUCTIONS.get(severity, SEVERITY_INSTRUCTIONS["mid"])
     )
     flag_text = _override(config, "flag_letters_instruction", FLAG_INSTRUCTION)
     return "\n\n".join([role, severity_text, flag_text])
@@ -196,6 +198,95 @@ def _image_block(image_path: str) -> dict:
     }
 
 
+def _pil_image_block(image) -> dict:
+    import io
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    data = base64.standard_b64encode(buffer.getvalue()).decode()
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": data},
+    }
+
+
+def _system_blocks(text: str, config: StyleGuideConfig | None) -> list[dict]:
+    """System prompt block; cache_control only when config cache = yes."""
+    block: dict = {"type": "text", "text": text}
+    if config is not None and config.cache:
+        block["cache_control"] = {"type": "ephemeral"}
+    return [block]
+
+
+def figure_parts_for(image_path: str) -> dict:
+    """OCR part geometry for a figure (cached per path in figure_parts)."""
+    try:
+        from app.figure_parts import extract_parts_path
+        return extract_parts_path(image_path)
+    except Exception as exc:  # noqa: BLE001 — OCR is best-effort
+        logging.getLogger(__name__).warning(
+            "figure part OCR failed for %s (%s); using whole image",
+            image_path, exc)
+        return {}
+
+
+def _figure_content(rule: Rule, chunk: Chunk) -> list[dict]:
+    """Content blocks for a figure check. When the rule names a
+    figure_type (header/sub_header/footer), only that part of the image
+    is sent; whole_image or blank sends the full figure."""
+    figure = chunk.figures[0] if chunk.figures else None
+    image_path = figure.image_path if figure else None
+    if not image_path or not Path(image_path).exists():
+        return []
+
+    part = (rule.figure_type or "whole_image").lower()
+    if part in ("", "whole_image"):
+        return [_image_block(image_path)]
+
+    from app.figure_parts import FIGURE_TYPE_TO_PART, crop_part
+    parts = figure_parts_for(image_path)
+    cropped = crop_part(image_path, part, parts) if parts else None
+    if cropped is None:
+        part_name = FIGURE_TYPE_TO_PART.get(part, part)
+        return [{"type": "text",
+                 "text": f"(No {part_name} was detected on this figure.)"}]
+    blocks: list[dict] = [_pil_image_block(cropped)]
+    text = parts.get(FIGURE_TYPE_TO_PART.get(part, part), {}).get("text", "")
+    if text:
+        blocks.append({"type": "text",
+                       "text": f"OCR text of this part: {text}"})
+    return blocks
+
+
+def build_check_params(
+    model: str,
+    severity: str,
+    rule: Rule,
+    chunk: Chunk,
+    config: StyleGuideConfig | None = None,
+) -> dict:
+    """messages.create kwargs for one (chunk, rule) check - shared by the
+    serial path and the Batches API path."""
+    content: list[dict] = []
+    if chunk.input_level == "figure":
+        content.extend(_figure_content(rule, chunk))
+    content.append({"type": "text", "text": build_user_text(rule, chunk)})
+    return {
+        "model": model,
+        "max_tokens": 4,
+        "system": _system_blocks(build_system(severity, config), config),
+        "messages": [{"role": "user", "content": content}],
+    }
+
+
+def _parse_flag(response) -> CheckResult:
+    raw = "".join(b.text for b in response.content if b.type == "text").strip()
+    flag = raw.lower().strip(".")
+    return CheckResult(
+        flag if flag in VALID_FLAGS else "invalid", raw,
+        response.usage.input_tokens, response.usage.output_tokens,
+    )
+
+
 def run_check(
     client: anthropic.Anthropic,
     model: str,
@@ -204,36 +295,22 @@ def run_check(
     chunk: Chunk,
     config: StyleGuideConfig | None = None,
 ) -> CheckResult:
-    content: list[dict] = [{"type": "text", "text": build_user_text(rule, chunk)}]
-    if chunk.input_level == "figure":
-        figure = chunk.figures[0]
-        if figure.image_path and Path(figure.image_path).exists():
-            content.insert(0, _image_block(figure.image_path))
-
+    params = build_check_params(model, severity, rule, chunk, config)
     input_tokens = output_tokens = 0
     raw = ""
     # one retry if the model strays from the single-letter format
     for nudge in ("", "Reply with one letter only: r, a or g."):
-        messages = [{"role": "user", "content": content}]
+        messages = list(params["messages"])
         if nudge:
             messages.append({"role": "assistant", "content": raw or "?"})
             messages.append({"role": "user", "content": nudge})
-        response = client.messages.create(
-            model=model,
-            max_tokens=4,
-            system=[{
-                "type": "text",
-                "text": build_system(severity, config),
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=messages,
-        )
-        raw = "".join(b.text for b in response.content if b.type == "text").strip()
-        input_tokens += response.usage.input_tokens
-        output_tokens += response.usage.output_tokens
-        flag = raw.lower().strip(".")
-        if flag in VALID_FLAGS:
-            return CheckResult(flag, raw, input_tokens, output_tokens)
+        response = client.messages.create(**{**params, "messages": messages})
+        result = _parse_flag(response)
+        raw = result.raw_response
+        input_tokens += result.input_tokens
+        output_tokens += result.output_tokens
+        if result.flag != "invalid":
+            return CheckResult(result.flag, raw, input_tokens, output_tokens)
     return CheckResult("invalid", raw, input_tokens, output_tokens)
 
 
@@ -272,6 +349,45 @@ def build_rewrite_user_text(
     return "\n\n".join(parts)
 
 
+def _rewrite_system_text(config: StyleGuideConfig | None) -> str:
+    """Role + rewrite instructions + the config's additional rewrite context
+    (general_rewritting_rules, best_practice_example). The whole block is
+    identical across calls, so with cache = yes it forms the cached prefix
+    and repeat calls read it at ~10% token cost."""
+    role = (config.role_context if config else "") or ROLE_CONTEXT
+    rewrite_text = _override(config, "rewrite_instruction", REWRITE_INSTRUCTION)
+    context_note = _override(config, "rewrite_context_note", REWRITE_CONTEXT_NOTE)
+    parts = [role, rewrite_text, context_note]
+
+    general = _override(config, "general_rewritting_rules", "")
+    if general and general.lower() != "placeholder":
+        parts.append(f"General rewriting rules to always follow:\n{general}")
+    exemplar = _override(config, "best_practice_example", "")
+    if exemplar and exemplar.lower() != "placeholder":
+        parts.append("The following passages show the exact style your "
+                     f"rewrites must match:\n{exemplar}")
+    return "\n\n".join(parts)
+
+
+def build_rewrite_params(
+    model: str,
+    rules: list[Rule],
+    chunk: Chunk,
+    config: StyleGuideConfig | None = None,
+    context_before: str = "",
+    context_after: str = "",
+) -> dict:
+    return {
+        "model": model,
+        "max_tokens": 2000,
+        "system": _system_blocks(_rewrite_system_text(config), config),
+        "messages": [{
+            "role": "user",
+            "content": build_rewrite_user_text(rules, chunk, context_before, context_after),
+        }],
+    }
+
+
 def run_rewrite(
     client: anthropic.Anthropic,
     model: str,
@@ -285,35 +401,74 @@ def run_rewrite(
 
     Figures are not rewritten - the caller skips figure chunks.
     """
-    role = (config.role_context if config else "") or ROLE_CONTEXT
-    rewrite_text = _override(config, "rewrite_instruction", REWRITE_INSTRUCTION)
-    context_note = _override(config, "rewrite_context_note", REWRITE_CONTEXT_NOTE)
-    system_text = f"{role}\n\n{rewrite_text}\n\n{context_note}"
-    # Optional pages of "perfectly written" T&E text from config - sits in
-    # the cached system prefix, so repeat calls read it at ~10% token cost.
-    exemplar = _override(config, "style_exemplar", "")
-    if exemplar:
-        system_text += ("\n\nThe following passages show the exact style "
-                        f"your rewrites must match:\n{exemplar}")
-    response = client.messages.create(
-        model=model,
-        max_tokens=2000,
-        system=[{
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
-        }],
-        messages=[{
-            "role": "user",
-            "content": build_rewrite_user_text(rules, chunk, context_before, context_after),
-        }],
-    )
+    response = client.messages.create(**build_rewrite_params(
+        model, rules, chunk, config, context_before, context_after))
     suggestion = "".join(b.text for b in response.content if b.type == "text").strip()
     return RewriteResult(
         suggestion=suggestion,
         input_tokens=response.usage.input_tokens,
         output_tokens=response.usage.output_tokens,
     )
+
+
+# ---- Message Batches API (config batching = yes): 50% token cost ----------
+
+def run_batch(
+    client: anthropic.Anthropic,
+    requests_params: dict[str, dict],
+    poll_seconds: int = 15,
+    timeout_seconds: int = 3600,
+) -> dict[str, object]:
+    """Submit {custom_id: messages.create kwargs} as one batch, poll until
+    it ends, and return {custom_id: Message | None}."""
+    from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+    from anthropic.types.messages.batch_create_params import Request
+
+    log = logging.getLogger(__name__)
+    batch = client.messages.batches.create(requests=[
+        Request(custom_id=cid, params=MessageCreateParamsNonStreaming(**params))
+        for cid, params in requests_params.items()
+    ])
+    log.info("batch %s submitted (%d requests)", batch.id, len(requests_params))
+
+    waited = 0
+    while True:
+        batch = client.messages.batches.retrieve(batch.id)
+        if batch.processing_status == "ended":
+            break
+        if waited >= timeout_seconds:
+            raise TimeoutError(f"batch {batch.id} still {batch.processing_status} "
+                               f"after {timeout_seconds}s")
+        log.info("  batch %s: %d processing...", batch.id,
+                 batch.request_counts.processing)
+        time.sleep(poll_seconds)
+        waited += poll_seconds
+
+    log.info("batch %s ended: %d succeeded, %d errored", batch.id,
+             batch.request_counts.succeeded, batch.request_counts.errored)
+    messages: dict[str, object] = {}
+    for result in client.messages.batches.results(batch.id):
+        if result.result.type == "succeeded":
+            messages[result.custom_id] = result.result.message
+        else:
+            log.warning("  batch item %s: %s", result.custom_id, result.result.type)
+            messages[result.custom_id] = None
+    return messages
+
+
+def parse_check_message(message) -> CheckResult:
+    """Batch-path equivalent of run_check's parsing (no retry possible)."""
+    if message is None:
+        return CheckResult("invalid", "(batch item failed)", 0, 0)
+    return _parse_flag(message)
+
+
+def parse_rewrite_message(message) -> RewriteResult:
+    if message is None:
+        return RewriteResult("", 0, 0)
+    suggestion = "".join(b.text for b in message.content if b.type == "text").strip()
+    return RewriteResult(suggestion, message.usage.input_tokens,
+                         message.usage.output_tokens)
 
 
 def run_word_flagging(

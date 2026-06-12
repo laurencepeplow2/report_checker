@@ -24,6 +24,7 @@ from app.check_engine import run_story_flag, run_word_flagging
 from app.checks import preflight
 from app.docs_parser import DEFAULT_DOCUMENT_TYPES, parse_document
 from app.runlog import setup_logging
+from app.runs import run_dir, update_index
 from app.styleguide import StyleGuideConfig, load_config
 
 log = logging.getLogger("report_checker.analyse")
@@ -41,14 +42,26 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("config not loaded (%s); using defaults", exc)
         config = StyleGuideConfig(document_types=DEFAULT_DOCUMENT_TYPES)
-    doc_id = (sys.argv[1] if len(sys.argv) > 1
-              else config.report_doc_id or TEST_DOC_ID)
-    allowed = config.document_types or DEFAULT_DOCUMENT_TYPES
+    doc_ids = ([sys.argv[1]] if len(sys.argv) > 1
+               else config.report_doc_ids or [TEST_DOC_ID])
 
-    if not preflight(config=config, require_api_key=False, doc_id=doc_id):
+    ok = all(
+        preflight(config=config if i == 0 else None,
+                  require_api_key=False, doc_id=d)
+        for i, d in enumerate(doc_ids)
+    )
+    if not ok:
         sys.exit(1)
 
-    parsed = parse_document(doc_id, allowed_types=allowed)
+    for doc_id in doc_ids:
+        analyse_for_doc(config, doc_id)
+    log.info("Full log: %s", log_path)
+
+
+def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
+    allowed = config.document_types or DEFAULT_DOCUMENT_TYPES
+    parsed = parse_document(doc_id, allowed_types=allowed,
+                            image_dir=DATA_DIR / "images")
     log.info("%r: %d links, %d headings, column width %.0fpt",
              parsed.title, len(parsed.links), len(parsed.headings),
              parsed.column_width_pt)
@@ -62,8 +75,9 @@ def main() -> None:
     headings = story(parsed)
     layout = figure_layout(parsed)
     log.info("Figure layout: %d multi-figure subsections, %d figures below "
-             "%d%% column width",
-             len(layout["multi_figure_subsections"]), len(layout["narrow_figures"]), 90)
+             "%d%% column width, %d footers over %d lines",
+             len(layout["multi_figure_subsections"]), len(layout["narrow_figures"]),
+             90, len(layout.get("long_footers", [])), 2)
     pages_excl_annex = max(
         (c.approx_page for c in parsed.chunks if c.section != "annex"),
         default=0,
@@ -97,8 +111,7 @@ def main() -> None:
     else:
         log.warning("Skipping story flag (no model or API key configured)")
 
-    DATA_DIR.mkdir(exist_ok=True)
-    out = DATA_DIR / "analysis.json"
+    out = run_dir(doc_id) / "analysis.json"
     out.write_text(
         json.dumps(
             {
@@ -116,11 +129,13 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
+    update_index(doc_id, parsed.title,
+                 broken_links=links["broken_count"],
+                 story_flag=story_flag.get("flag", ""))
     log.info("-> %s", out)
     if words:
         top = ", ".join(f"{w['word']} ({w['count']})" for w in words[:8])
         log.info("Top words: %s", top)
-    log.info("Full log: %s", log_path)
 
 
 if __name__ == "__main__":

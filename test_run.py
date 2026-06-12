@@ -1,13 +1,16 @@
-"""Test mode: run the style rules over the report.
+"""Run the style rules over every report linked in the config tab.
 
-Scope: every paragraph and figure chunk within the first MAX_PAGES
-approximate pages, at TEST_SEVERITY. One API call per (chunk, rule);
-breached non-figure chunks get a rewrite that sees the surrounding
-paragraphs as context. Results land in data/test_run.csv with the exact
-prompts that were sent.
+Scope per report: every paragraph and figure chunk within the first
+max_pages approximate pages (config "mode"/"max_pages"; 0 = whole
+document), at the severity set in the config tab. One API call per
+(chunk, rule), or one batch when config batching = yes; breached
+non-figure chunks get a rewrite that sees the surrounding paragraphs
+as context.
 
-The document comes from the config tab's report_link unless a doc id is
-passed on the command line.
+report_link may hold several Google Doc links - each gets its own
+output folder data/runs/<doc_id>/ (test_run.csv, test_run.json), listed
+in data/runs/index.json for the UI's report selector. A doc id passed
+on the command line overrides the config links.
 
 Usage:
     python test_run.py [doc_id]
@@ -24,20 +27,21 @@ import anthropic
 from dotenv import load_dotenv
 
 from app.check_engine import (
-    build_system, build_user_text, estimate_cost, run_check, run_rewrite,
+    build_check_params, build_rewrite_params, build_system, build_user_text,
+    estimate_cost, parse_check_message, parse_rewrite_message, run_batch,
+    run_check, run_rewrite,
 )
 from app.checks import post_run_checks, preflight
 from app.docs_parser import Chunk, parse_document
 from app.runlog import setup_logging
-from app.styleguide import load_config, load_rules
+from app.runs import run_dir, update_index
+from app.styleguide import StyleGuideConfig, load_config, load_rules
 
 log = logging.getLogger("report_checker.test_run")
 
 FALLBACK_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FLAG_HISTORY_CSV = Path(__file__).resolve().parent / "flag_history.csv"
-TEST_SEVERITY = "mid"   # forced in test mode
-MAX_PAGES = 10          # only check chunks within the first ~N pages
 
 load_dotenv()
 
@@ -84,11 +88,13 @@ def update_flag_history(title: str, rows: list[dict]) -> None:
         writer.writerows(merged[k] for k in sorted(merged))
 
 
-def select_chunks(chunks: list[Chunk]) -> list[Chunk]:
-    """Every paragraph and figure chunk within the first MAX_PAGES pages."""
+def select_chunks(chunks: list[Chunk], max_pages: int) -> list[Chunk]:
+    """Every paragraph and figure chunk within the first max_pages pages
+    (0 = no page cap)."""
     return [
         c for c in chunks
-        if c.input_level in ("paragraph", "figure") and c.approx_page <= MAX_PAGES
+        if c.input_level in ("paragraph", "figure")
+        and (max_pages <= 0 or c.approx_page <= max_pages)
     ]
 
 
@@ -109,88 +115,146 @@ def main() -> None:
     log_path = setup_logging("test_run")
 
     config = load_config()
-    doc_id = (sys.argv[1] if len(sys.argv) > 1
-              else config.report_doc_id or FALLBACK_DOC_ID)
-    model = config.model_for("rag report")
-    rewrite_model = config.model_for("suggested improvement")
+    doc_ids = ([sys.argv[1]] if len(sys.argv) > 1
+               else config.report_doc_ids or [FALLBACK_DOC_ID])
     rules = load_rules()
 
-    if not preflight(config=config, rules=rules, require_api_key=True, doc_id=doc_id):
+    ok = all(
+        preflight(config=config, rules=rules, require_api_key=True, doc_id=d)
+        if i == 0 else preflight(doc_id=d)
+        for i, d in enumerate(doc_ids)
+    )
+    if not ok:
         sys.exit(1)
 
-    log.info("Models: checks=%s rewrites=%s | severity: %s (forced) | "
-             "%d active rules | first %d pages",
-             model, rewrite_model, TEST_SEVERITY, len(rules), MAX_PAGES)
+    severity = config.check_severity or "mid"
+    log.info("Mode %s: %d report(s), severity %s, max %s pages, "
+             "%d active rules, batching=%s cache=%s",
+             config.mode or "(unnamed)", len(doc_ids), severity,
+             config.max_pages or "all", len(rules),
+             config.batching, config.cache)
+
+    client = anthropic.Anthropic()
+    for doc_id in doc_ids:
+        run_for_doc(client, config, rules, doc_id, severity)
+    log.info("Full log: %s", log_path)
+
+
+def run_for_doc(
+    client: anthropic.Anthropic,
+    config: StyleGuideConfig,
+    rules: list,
+    doc_id: str,
+    severity: str,
+) -> None:
+    model = config.model_for("rag report")
+    rewrite_model = config.model_for("suggested improvement")
 
     parsed = parse_document(
         doc_id,
         allowed_types=config.document_types,
         image_dir=DATA_DIR / "images",
     )
-    sample = select_chunks(parsed.chunks)
-    log.info("Document: %r (%s), %d chunks; %d in scope (first %d pages)",
+    sample = select_chunks(parsed.chunks, config.max_pages)
+    log.info("Document: %r (%s), %d chunks; %d in scope (first %s pages)",
              parsed.title, parsed.document_type, len(parsed.chunks),
-             len(sample), MAX_PAGES)
+             len(sample), config.max_pages or "all")
+    system_prompt = build_system(severity, config)
 
-    client = anthropic.Anthropic()
-    system_prompt = build_system(TEST_SEVERITY, config)
+    # Work list: every applicable (chunk, rule) pair
+    work: list[tuple[Chunk, object]] = []
+    for chunk in sample:
+        for rule in rules:
+            if rule.applies_to(chunk.input_level, parsed.document_type, chunk.section):
+                work.append((chunk, rule))
+    log.info("%d checks to run (%s)", len(work),
+             "Batches API, 50%% token cost" if config.batching else "serial")
+
+    # ---- first loop: flag checks --------------------------------------
+    results: dict[tuple[str, str], object] = {}
+    total_in = total_out = 0
+    if config.batching:
+        request_params = {
+            f"chk-{i}": build_check_params(model, severity, rule, chunk, config)
+            for i, (chunk, rule) in enumerate(work)
+        }
+        messages = run_batch(client, request_params)
+        for i, (chunk, rule) in enumerate(work):
+            results[(chunk.chunk_id, rule.rule_id)] = \
+                parse_check_message(messages.get(f"chk-{i}"))
+    else:
+        for chunk, rule in work:
+            results[(chunk.chunk_id, rule.rule_id)] = \
+                run_check(client, model, severity, rule, chunk, config)
+            log.info("  %s x %s -> %s", chunk.chunk_id, rule.rule_id,
+                     results[(chunk.chunk_id, rule.rule_id)].flag)
 
     rows = []
-    suggestions: dict[str, str] = {}  # chunk_id -> rewrite
-    total_in = total_out = 0
-    for chunk in sample:
-        applicable = [
-            r for r in rules
-            if r.applies_to(chunk.input_level, parsed.document_type, chunk.section)
-        ]
-        log.info("%s [%s | %s | %s]: %d applicable rules",
-                 chunk.chunk_id, chunk.input_level, chunk.tab_title,
-                 chunk.section, len(applicable))
-        breached: list = []
-        for rule in applicable:
-            result = run_check(client, model, TEST_SEVERITY, rule, chunk, config)
-            total_in += result.input_tokens
-            total_out += result.output_tokens
-            if result.flag in ("r", "a"):
-                breached.append(rule)
-            log.info("  %s -> %s", rule.rule_id, result.flag)
-            rows.append({
-                "chunk_id": chunk.chunk_id,
-                "tab": chunk.tab_title,
-                "section": chunk.section,
-                "input_level": chunk.input_level,
-                "chunk_text": chunk.text,
-                "rule_id": rule.rule_id,
-                "category": rule.category,
-                "rule": rule.text,
-                "example": rule.example,
-                "severity": TEST_SEVERITY,
-                "flag": result.flag,
-                "raw_response": result.raw_response,
-                "system_prompt": system_prompt,
-                "user_prompt": build_user_text(rule, chunk),
-                "model": model,
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
-            })
+    breached_by_chunk: dict[str, list] = {}
+    for chunk, rule in work:
+        result = results[(chunk.chunk_id, rule.rule_id)]
+        total_in += result.input_tokens
+        total_out += result.output_tokens
+        if result.flag in ("r", "a"):
+            breached_by_chunk.setdefault(chunk.chunk_id, []).append(rule)
+        rows.append({
+            "chunk_id": chunk.chunk_id,
+            "tab": chunk.tab_title,
+            "section": chunk.section,
+            "input_level": chunk.input_level,
+            "chunk_text": chunk.text,
+            "rule_id": rule.rule_id,
+            "category": rule.category,
+            "rule": rule.text,
+            "example": rule.example,
+            "figure_type": rule.figure_type,
+            "severity": severity,
+            "flag": result.flag,
+            "raw_response": result.raw_response,
+            "system_prompt": system_prompt,
+            "user_prompt": build_user_text(rule, chunk),
+            "model": model,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+        })
 
-        # Second loop: feed the breached rules back and ask for a rewrite
-        # that fixes only those breaches. Figures are not rewritten.
-        if breached and chunk.input_level != "figure":
+    # ---- second loop: rewrites for breached non-figure chunks ---------
+    suggestions: dict[str, str] = {}
+    rewrite_work = [
+        (chunk, breached_by_chunk[chunk.chunk_id])
+        for chunk in sample
+        if chunk.chunk_id in breached_by_chunk and chunk.input_level != "figure"
+    ]
+    log.info("%d chunks need rewrites", len(rewrite_work))
+    if config.batching and rewrite_work:
+        request_params = {}
+        for i, (chunk, breached) in enumerate(rewrite_work):
+            before, after = neighbour_context(sample, chunk)
+            request_params[f"rw-{i}"] = build_rewrite_params(
+                rewrite_model, breached, chunk, config, before, after)
+        messages = run_batch(client, request_params)
+        for i, (chunk, breached) in enumerate(rewrite_work):
+            rewrite = parse_rewrite_message(messages.get(f"rw-{i}"))
+            total_in += rewrite.input_tokens
+            total_out += rewrite.output_tokens
+            if rewrite.suggestion:
+                suggestions[chunk.chunk_id] = rewrite.suggestion
+    else:
+        for chunk, breached in rewrite_work:
             before, after = neighbour_context(sample, chunk)
             rewrite = run_rewrite(client, rewrite_model, breached, chunk, config,
                                   context_before=before, context_after=after)
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
             suggestions[chunk.chunk_id] = rewrite.suggestion
-            log.info("  rewrite (%d breached rules) -> %d chars",
-                     len(breached), len(rewrite.suggestion))
+            log.info("  rewrite %s (%d breached rules) -> %d chars",
+                     chunk.chunk_id, len(breached), len(rewrite.suggestion))
 
     for row in rows:
         row["suggestion"] = suggestions.get(row["chunk_id"], "")
 
-    DATA_DIR.mkdir(exist_ok=True)
-    out_path = DATA_DIR / "test_run.csv"
+    out_dir = run_dir(doc_id)
+    out_path = out_dir / "test_run.csv"
     with out_path.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
@@ -220,13 +284,14 @@ def main() -> None:
             "rule": row["rule"],
             "flag": row["flag"],
         })
-    (DATA_DIR / "test_run.json").write_text(
+    (out_dir / "test_run.json").write_text(
         json.dumps(
             {
                 "doc_id": parsed.doc_id,
                 "title": parsed.title,
                 "document_type": parsed.document_type,
-                "severity": TEST_SEVERITY,
+                "severity": severity,
+                "mode": config.mode,
                 "model": model,
                 "chunks": list(by_chunk.values()),
             },
@@ -236,10 +301,12 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    flags = [r["flag"] for r in rows]
     update_flag_history(parsed.title, rows)
+    update_index(doc_id, parsed.title, mode=config.mode, severity=severity,
+                 checks=len(rows), red=flags.count("r"), amber=flags.count("a"))
     log.info("Flag history updated -> %s", FLAG_HISTORY_CSV.name)
 
-    flags = [r["flag"] for r in rows]
     log.info("%d checks -> %s (+ test_run.json)", len(rows), out_path)
     log.info("Flags: r=%d a=%d g=%d invalid=%d",
              flags.count("r"), flags.count("a"), flags.count("g"),
@@ -248,7 +315,6 @@ def main() -> None:
              total_in, total_out, estimate_cost(total_in, total_out))
 
     post_run_checks(parsed, rows, suggestions)
-    log.info("Full log: %s", log_path)
 
 
 if __name__ == "__main__":

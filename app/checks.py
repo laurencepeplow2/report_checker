@@ -16,7 +16,6 @@ log = logging.getLogger("report_checker.checks")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_STEPS = ("rag report", "overused words", "suggested improvement", "story flag")
-REQUIRED_SEVERITIES = ("low", "mid", "high")
 
 
 @dataclass
@@ -76,16 +75,19 @@ def preflight(config=None, rules=None, require_api_key: bool = True,
             f"missing: {missing_steps}" if missing_steps
             else ", ".join(f"{s}={config.model_for(s)}" for s in REQUIRED_STEPS),
         ))
-        missing_sev = [s for s in REQUIRED_SEVERITIES if s not in config.severity_instructions]
+        severity = config.check_severity
+        has_instruction = severity in config.severity_instructions
         results.append(Check(
-            "severity instructions", "WARN" if missing_sev else "PASS",
-            f"missing from config (code fallback used): {missing_sev}" if missing_sev
-            else "low/mid/high from sheet",
+            "severity", "FAIL" if not severity else ("WARN" if not has_instruction else "PASS"),
+            "check_severity empty in config" if not severity else (
+                f"'{severity}' has no flag_instruction (code fallback used)"
+                if not has_instruction else
+                f"'{severity}' with instruction from sheet"),
         ))
         results.append(Check(
-            "role_context", "WARN" if not config.role_context else "PASS",
-            "empty in config - code fallback used" if not config.role_context
-            else f"{len(config.role_context)} chars from sheet",
+            "batching / cache", "PASS",
+            f"batching={'yes' if config.batching else 'no'}, "
+            f"cache={'yes' if config.cache else 'no'}",
         ))
         for name, values in (("document_types", config.document_types),
                              ("sections", config.sections)):

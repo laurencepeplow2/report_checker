@@ -23,6 +23,17 @@ RULE_LEVEL_TO_CHUNK_LEVEL = {
 }
 
 
+# Old step names (still used in code) -> config tag names. The tag /
+# claude_model / role triplet in the config tab carries one row per AI
+# step: its name, the model it runs on, and its instruction text.
+STEP_TAGS = {
+    "rag report": "flag_letters_instruction",
+    "suggested improvement": "rewrite_instruction",
+    "overused words": "word_flag_instruction",
+    "story flag": "story_flag_instruction",
+}
+
+
 @dataclass
 class StyleGuideConfig:
     claude_model: str = ""
@@ -32,27 +43,41 @@ class StyleGuideConfig:
     input_levels: list[str] = field(default_factory=list)
     role_context: str = ""
     severity_instructions: dict[str, str] = field(default_factory=dict)
-    # One model per AI step, from the unlabeled column next to
-    # claude_model_selection: "rag report", "overused words",
-    # "suggested improvement", "story flag" (keys lowercased).
+    # tag -> model and tag -> instruction text, from the config triplet
     step_models: dict[str, str] = field(default_factory=dict)
+    prompts: dict[str, str] = field(default_factory=dict)
     report_link: str = ""
+    batching: bool = False
+    cache: bool = False
+    mode: str = ""        # run profile name, e.g. "main", "test_1"
+    max_pages: int = 0    # page cap for the run; 0 = whole document
     raw: dict[str, list[str]] = field(default_factory=dict)
 
     def model_for(self, step: str) -> str:
-        return self.step_models.get(step.lower(), "") or self.claude_model
+        tag = STEP_TAGS.get(step.lower(), step.lower())
+        return self.step_models.get(tag, "") or self.claude_model
 
-    def prompt_override(self, column: str) -> str:
-        """First value of any config column - lets every AI instruction be
-        overridden from the sheet without a code change. Returns "" when
-        the column is absent (callers fall back to the in-code default)."""
-        values = self.raw.get(column.lower(), [])
+    def prompt_override(self, name: str) -> str:
+        """Instruction text for a tag (or any config column) from the sheet.
+        Returns "" when absent (callers fall back to the in-code default)."""
+        name = name.lower()
+        if self.prompts.get(name):
+            return self.prompts[name]
+        values = self.raw.get(name, [])
         return values[0].strip() if values else ""
 
     @property
+    def report_doc_ids(self) -> list[str]:
+        """All doc ids found in the report_link column - the column may
+        hold several links (one per row, or several in one cell)."""
+        ids = re.findall(r"/document/d/([A-Za-z0-9_-]+)", self.report_link)
+        seen: set[str] = set()
+        return [i for i in ids if not (i in seen or seen.add(i))]
+
+    @property
     def report_doc_id(self) -> str:
-        match = re.search(r"/document/d/([A-Za-z0-9_-]+)", self.report_link)
-        return match.group(1) if match else ""
+        ids = self.report_doc_ids
+        return ids[0] if ids else ""
 
 
 @dataclass
@@ -62,6 +87,7 @@ class Rule:
     text: str               # the rule itself ("Rule:" prefix stripped)
     input_level: str        # normalised chunk level: paragraph | figure | subsection
     example: str = ""       # "Example:" part - fed to the AI, hidden in the UI
+    figure_type: str = ""   # header | sub_header | footer | whole_image | ""
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
 
@@ -120,16 +146,24 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
                 value = " ".join(row[idx].split())  # collapse stray whitespace
                 columns[header].append(value.lower() if header in VOCAB_COLUMNS else value)
 
-    # Per-step models: the unlabeled column directly before
-    # claude_model_selection names the AI step for each model row.
+    # The tag / claude_model / role triplet: one row per AI step with its
+    # name, model, and instruction text (literal "\n" unescaped).
     step_models: dict[str, str] = {}
-    if "claude_model_selection" in headers:
-        model_idx = headers.index("claude_model_selection")
+    prompts: dict[str, str] = {}
+    if "tag" in headers:
+        tag_idx = headers.index("tag")
+        model_idx = headers.index("claude_model") if "claude_model" in headers else -1
+        text_idx = headers.index("role") if "role" in headers else -1
         for row in values[1:]:
-            step = row[model_idx - 1].strip().lower() if model_idx - 1 < len(row) else ""
-            model = row[model_idx].strip() if model_idx < len(row) else ""
-            if step and model:
-                step_models[step] = model
+            def cell(idx: int) -> str:
+                return row[idx].strip() if 0 <= idx < len(row) else ""
+            tag = cell(tag_idx).lower()
+            if not tag:
+                continue
+            if cell(model_idx):
+                step_models[tag] = cell(model_idx)
+            if cell(text_idx):
+                prompts[tag] = cell(text_idx).replace("\\n", "\n")
 
     def first(key: str) -> str:
         return columns.get(key, [""])[0] if columns.get(key) else ""
@@ -140,7 +174,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     ))
 
     return StyleGuideConfig(
-        claude_model=first("claude_model_selection"),
+        claude_model=first("claude_model") or first("claude_model_selection"),
         check_severity=first("check_severity"),
         document_types=columns.get("document_type", []),
         sections=columns.get("section", []),
@@ -148,7 +182,12 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         role_context=first("role_context"),
         severity_instructions=severity_instructions,
         step_models=step_models,
-        report_link=first("report_link"),
+        prompts=prompts,
+        report_link=" ".join(columns.get("report_link", [])),
+        batching=first("batching").lower() == "yes",
+        cache=first("cache").lower() == "yes",
+        mode=first("mode").lower(),
+        max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
         raw=columns,
     )
 
@@ -170,38 +209,39 @@ def split_rule_example(raw: str) -> tuple[str, str]:
 def load_rules(sheet_id: str | None = None) -> list[Rule]:
     """Read the TE_style_rules tab.
 
-    Column layout (by position — the header of column C currently reads
-    "report" but the column holds the input level):
-      A include_AI_check (yes / no / n/a) | B rules ("Rule: ... Example: ...") |
-      C input_level | D report | E briefing | F pr |
-      G cover | H (spacer) | I executive summary | J main text | K annex
+    Column layout (by position):
+      A include_AI_check (yes / no / coded) | B rules ("Rule: ... Example: ...") |
+      C level | D figure_type (header/sub_header/footer/whole_image) |
+      E report | F briefing | G pr |
+      H cover | I (spacer) | J executive summary | K main text | L annex
 
     include_AI_check values:
-      yes — rule is checked via the AI loop
-      no  — rule is inactive
-      n/a — rule is implemented as a deterministic code check (e.g. figure
-            width, one figure per subsection); skipped here, no warning
+      yes   — rule is checked via the AI loop
+      no    — rule is inactive
+      coded — always in the run, but implemented as a deterministic code
+              check (figure width, one figure per subsection, footer
+              length); never sent to the AI
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:K1000"
+        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:L1000"
     ).execute().get("values", [])
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
-    doc_type_cols = {3: "report", 4: "briefing", 5: "pr"}
-    section_cols = {6: "cover", 8: "executive summary", 9: "main text", 10: "annex"}
+    doc_type_cols = {4: "report", 5: "briefing", 6: "pr"}
+    section_cols = {7: "cover", 9: "executive summary", 10: "main text", 11: "annex"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
-    in_code = 0
+    coded = 0
     for row_num, row in enumerate(values[1:], start=2):
         def cell(idx: int) -> str:
             return row[idx].strip().lower() if idx < len(row) else ""
 
         include = cell(0)
-        if include in ("n/a", "na"):
-            in_code += 1  # implemented as a deterministic code check
+        if include in ("coded", "n/a", "na"):
+            coded += 1  # implemented as a deterministic code check
             continue
         if include != "yes":
             continue
@@ -209,7 +249,7 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
         text, example = split_rule_example(raw)
         level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(2))
         if not text or level is None:
-            skipped.append(f"row {row_num}: missing rule text or bad input_level {cell(2)!r}")
+            skipped.append(f"row {row_num}: missing rule text or bad level {cell(2)!r}")
             continue
         rules.append(Rule(
             rule_id=f"rule-{row_num:03d}",
@@ -217,12 +257,13 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
             text=text,
             input_level=level,
             example=example,
+            figure_type=cell(3).replace(" ", "_"),
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))
     logger = logging.getLogger(__name__)
-    if in_code:
-        logger.debug("%d rule(s) marked n/a (implemented in code)", in_code)
+    if coded:
+        logger.info("%d rule(s) marked coded - covered by deterministic checks", coded)
     if skipped:
         logger.warning("skipped %d malformed rule rows: %s", len(skipped), skipped)
     return rules

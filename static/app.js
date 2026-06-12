@@ -66,6 +66,19 @@ async function load() {
   el("issue-summary").textContent =
     `${allChunks.length} of ${total} checked chunks have issues`;
 
+  // Section toggle: report tabs in document order
+  const sectionSelect = el("section-select");
+  const seen = new Set();
+  for (const c of runData.chunks) {
+    if (!seen.has(c.tab)) {
+      seen.add(c.tab);
+      const opt = document.createElement("option");
+      opt.value = c.tab;
+      opt.textContent = c.tab;
+      sectionSelect.appendChild(opt);
+    }
+  }
+
   // Flag totals for the health view
   let reds = 0, ambers = 0;
   for (const c of runData.chunks) {
@@ -88,7 +101,11 @@ async function load() {
 
 function applyFilter() {
   const level = el("level-select").value;
-  view = level === "all" ? allChunks : allChunks.filter((c) => c.input_level === level);
+  const section = el("section-select").value;
+  view = allChunks.filter((c) =>
+    (level === "all" || c.input_level === level) &&
+    (section === "all" || c.tab === section)
+  );
   index = 0;
   render();
 }
@@ -156,7 +173,7 @@ function render() {
   const box = el("reviewed-box");
 
   if (!view.length) {
-    content.textContent = "No flagged chunks at this input level.";
+    content.textContent = "No flagged chunks match the current filters.";
     content.classList.add("empty");
     suggestion.textContent = "Nothing to improve here.";
     suggestion.classList.add("empty");
@@ -350,8 +367,22 @@ function renderHealth(data) {
     narrow.length === 0
       ? `Figures at full column width (column ≈ ${layout.column_width_pt || "?"}pt)`
       : `${narrow.length} figure(s) below full column width`,
-    narrow.map((n) => `${n.tab} - ${n.pct_of_column}% of column width`)
+    narrow.map((n) =>
+      `${n.tab}${n.heading && n.heading !== n.tab ? ` - "${n.heading}"` : ""}`
+      + ` - ${n.pct_of_column}% of column width`)
   );
+
+  // Story flag (AI verdict on the heading sequence)
+  const flagBox = el("story-flag");
+  if (data.story_flag && data.story_flag.flag) {
+    const f = data.story_flag.flag;
+    flagBox.hidden = false;
+    flagBox.className = `story-verdict flag-${f}`;
+    flagBox.innerHTML = `<span class="flag-chip">${f}</span><span class="verdict-text"></span>`;
+    flagBox.querySelector(".verdict-text").textContent = data.story_flag.explanation || "";
+  } else {
+    flagBox.hidden = true;
+  }
 
   // Story
   const story = el("story-list");
@@ -378,6 +409,7 @@ document.querySelectorAll(".nav-pill").forEach((pill) => {
 el("prev-btn").addEventListener("click", () => { if (index > 0) { index--; render(); } });
 el("next-btn").addEventListener("click", () => { if (index < view.length - 1) { index++; render(); } });
 el("level-select").addEventListener("change", applyFilter);
+el("section-select").addEventListener("change", applyFilter);
 el("reviewed-box").addEventListener("change", (e) => {
   const chunk = view[index];
   if (!chunk) return;

@@ -1,9 +1,13 @@
-"""Test mode: run the style rules over a small sample of chunks.
+"""Test mode: run the style rules over the report.
 
-Sample = one figure + one paragraph each from the executive summary, the
-main text (a numbered chapter) and the recommendations tab. Severity is
-forced to HIGH. One API call per (chunk, rule); results land in
-data/test_run.csv with the exact prompts that were sent.
+Scope: every paragraph and figure chunk within the first MAX_PAGES
+approximate pages, at TEST_SEVERITY. One API call per (chunk, rule);
+breached non-figure chunks get a rewrite that sees the surrounding
+paragraphs as context. Results land in data/test_run.csv with the exact
+prompts that were sent.
+
+The document comes from the config tab's report_link unless a doc id is
+passed on the command line.
 
 Usage:
     python test_run.py [doc_id]
@@ -29,10 +33,11 @@ from app.styleguide import load_config, load_rules
 
 log = logging.getLogger("report_checker.test_run")
 
-TEST_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
+FALLBACK_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FLAG_HISTORY_CSV = Path(__file__).resolve().parent / "flag_history.csv"
-TEST_SEVERITY = "high"  # forced in test mode
+TEST_SEVERITY = "mid"   # forced in test mode
+MAX_PAGES = 10          # only check chunks within the first ~N pages
 
 load_dotenv()
 
@@ -79,34 +84,33 @@ def update_flag_history(title: str, rows: list[dict]) -> None:
         writer.writerows(merged[k] for k in sorted(merged))
 
 
-def pick_sample(chunks: list[Chunk]) -> list[Chunk]:
-    """One figure + one paragraph from exec summary / main text / recommendations."""
-    def first(pred) -> Chunk | None:
-        return next((c for c in chunks if pred(c)), None)
-
-    sample = [
-        first(lambda c: c.input_level == "figure"
-              and c.figures and c.figures[0].image_path),
-        first(lambda c: c.input_level == "paragraph"
-              and c.section == "executive summary" and len(c.text) > 200),
-        first(lambda c: c.input_level == "paragraph"
-              and c.section == "main text"
-              and not c.tab_title.lower().startswith("6")
-              and len(c.text) > 200),
-        first(lambda c: c.input_level == "paragraph"
-              and c.tab_title.lower().startswith("6") and len(c.text) > 50),
+def select_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """Every paragraph and figure chunk within the first MAX_PAGES pages."""
+    return [
+        c for c in chunks
+        if c.input_level in ("paragraph", "figure") and c.approx_page <= MAX_PAGES
     ]
-    missing = [i for i, c in enumerate(sample) if c is None]
-    if missing:
-        raise RuntimeError(f"Could not find sample chunk(s) {missing} in the document.")
-    return sample
+
+
+def neighbour_context(chunks: list[Chunk], chunk: Chunk) -> tuple[str, str]:
+    """Plain text of the paragraph before/after the chunk in the same tab."""
+    paras = [c for c in chunks
+             if c.input_level == "paragraph" and c.tab_title == chunk.tab_title]
+    try:
+        idx = next(i for i, c in enumerate(paras) if c.chunk_id == chunk.chunk_id)
+    except StopIteration:
+        return "", ""
+    before = paras[idx - 1].text if idx > 0 else ""
+    after = paras[idx + 1].text if idx + 1 < len(paras) else ""
+    return before, after
 
 
 def main() -> None:
-    doc_id = sys.argv[1] if len(sys.argv) > 1 else TEST_DOC_ID
     log_path = setup_logging("test_run")
 
     config = load_config()
+    doc_id = (sys.argv[1] if len(sys.argv) > 1
+              else config.report_doc_id or FALLBACK_DOC_ID)
     model = config.model_for("rag report")
     rewrite_model = config.model_for("suggested improvement")
     rules = load_rules()
@@ -114,17 +118,19 @@ def main() -> None:
     if not preflight(config=config, rules=rules, require_api_key=True, doc_id=doc_id):
         sys.exit(1)
 
-    log.info("Models: checks=%s rewrites=%s | severity: %s (forced) | %d active rules",
-             model, rewrite_model, TEST_SEVERITY, len(rules))
+    log.info("Models: checks=%s rewrites=%s | severity: %s (forced) | "
+             "%d active rules | first %d pages",
+             model, rewrite_model, TEST_SEVERITY, len(rules), MAX_PAGES)
 
     parsed = parse_document(
         doc_id,
         allowed_types=config.document_types,
         image_dir=DATA_DIR / "images",
     )
-    sample = pick_sample(parsed.chunks)
-    log.info("Document: %r (%s), %d chunks; sampled %d",
-             parsed.title, parsed.document_type, len(parsed.chunks), len(sample))
+    sample = select_chunks(parsed.chunks)
+    log.info("Document: %r (%s), %d chunks; %d in scope (first %d pages)",
+             parsed.title, parsed.document_type, len(parsed.chunks),
+             len(sample), MAX_PAGES)
 
     client = anthropic.Anthropic()
     system_prompt = build_system(TEST_SEVERITY, config)
@@ -171,7 +177,9 @@ def main() -> None:
         # Second loop: feed the breached rules back and ask for a rewrite
         # that fixes only those breaches. Figures are not rewritten.
         if breached and chunk.input_level != "figure":
-            rewrite = run_rewrite(client, rewrite_model, breached, chunk, config)
+            before, after = neighbour_context(sample, chunk)
+            rewrite = run_rewrite(client, rewrite_model, breached, chunk, config,
+                                  context_before=before, context_after=after)
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
             suggestions[chunk.chunk_id] = rewrite.suggestion

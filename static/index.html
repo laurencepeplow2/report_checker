@@ -30,7 +30,10 @@
           <option value="all">All levels</option>
           <option value="paragraph">Paragraph</option>
           <option value="figure">Figure</option>
-          <option value="subsection">Sub-section</option>
+        </select>
+        <label for="section-select" class="muted">Section</label>
+        <select id="section-select">
+          <option value="all">All sections</option>
         </select>
         <span id="issue-summary" class="muted"></span>
         <span id="progress-summary" class="muted"></span>
@@ -100,6 +103,7 @@
       <div class="panel">
         <div class="panel-title">What is my story?</div>
         <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
+        <div id="story-flag" hidden></div>
         <div id="story-list"></div>
       </div>
     </div>

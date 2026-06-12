@@ -15,7 +15,7 @@ from pathlib import Path
 log = logging.getLogger("report_checker.checks")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-REQUIRED_STEPS = ("rag report", "overused words", "suggested improvement")
+REQUIRED_STEPS = ("rag report", "overused words", "suggested improvement", "story flag")
 REQUIRED_SEVERITIES = ("low", "mid", "high")
 
 

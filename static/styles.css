@@ -346,6 +346,23 @@ footer a { color: var(--accent); }
   padding: 0.2rem 0 0 1.75rem;
 }
 
+.story-verdict {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.story-verdict.flag-r { background: var(--red-bg); border-color: var(--red-line); }
+.story-verdict.flag-a { background: var(--amber-bg); border-color: var(--amber-line); }
+.story-verdict.flag-g { background: #eaf3ec; border-color: #c2dcc9; }
+.story-verdict .flag-chip { margin-top: 0.1rem; }
+.story-verdict.flag-g .flag-chip { background: var(--green); }
+
 .story-item { padding: 0.28rem 0; font-size: 0.88rem; line-height: 1.45; }
 .story-item.lvl-0 { font-weight: 700; margin-top: 0.55rem; color: var(--accent); }
 .story-item.lvl-1 { font-weight: 600; }

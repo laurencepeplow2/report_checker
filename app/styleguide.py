@@ -34,12 +34,18 @@ class StyleGuideConfig:
     severity_instructions: dict[str, str] = field(default_factory=dict)
     # One model per AI step, from the unlabeled column next to
     # claude_model_selection: "rag report", "overused words",
-    # "suggested improvement" (keys lowercased).
+    # "suggested improvement", "story flag" (keys lowercased).
     step_models: dict[str, str] = field(default_factory=dict)
+    report_link: str = ""
     raw: dict[str, list[str]] = field(default_factory=dict)
 
     def model_for(self, step: str) -> str:
         return self.step_models.get(step.lower(), "") or self.claude_model
+
+    @property
+    def report_doc_id(self) -> str:
+        match = re.search(r"/document/d/([A-Za-z0-9_-]+)", self.report_link)
+        return match.group(1) if match else ""
 
 
 @dataclass
@@ -135,6 +141,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         role_context=first("role_context"),
         severity_instructions=severity_instructions,
         step_models=step_models,
+        report_link=first("report_link"),
         raw=columns,
     )
 
@@ -158,27 +165,38 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
 
     Column layout (by position — the header of column C currently reads
     "report" but the column holds the input level):
-      A include (yes/no) | B rules ("Rule: ... Example: ...") |
+      A include_AI_check (yes / no / n/a) | B rules ("Rule: ... Example: ...") |
       C input_level | D report | E briefing | F pr |
-      G cover | H executive summary | I main text | J annex
+      G cover | H (spacer) | I executive summary | J main text | K annex
+
+    include_AI_check values:
+      yes — rule is checked via the AI loop
+      no  — rule is inactive
+      n/a — rule is implemented as a deterministic code check (e.g. figure
+            width, one figure per subsection); skipped here, no warning
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:J1000"
+        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:K1000"
     ).execute().get("values", [])
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
     doc_type_cols = {3: "report", 4: "briefing", 5: "pr"}
-    section_cols = {6: "cover", 7: "executive summary", 8: "main text", 9: "annex"}
+    section_cols = {6: "cover", 8: "executive summary", 9: "main text", 10: "annex"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
+    in_code = 0
     for row_num, row in enumerate(values[1:], start=2):
         def cell(idx: int) -> str:
             return row[idx].strip().lower() if idx < len(row) else ""
 
-        if cell(0) != "yes":
+        include = cell(0)
+        if include in ("n/a", "na"):
+            in_code += 1  # implemented as a deterministic code check
+            continue
+        if include != "yes":
             continue
         raw = (row[1].strip() if len(row) > 1 else "")
         text, example = split_rule_example(raw)
@@ -195,7 +213,9 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))
+    logger = logging.getLogger(__name__)
+    if in_code:
+        logger.debug("%d rule(s) marked n/a (implemented in code)", in_code)
     if skipped:
-        logging.getLogger(__name__).warning(
-            "skipped %d malformed rule rows: %s", len(skipped), skipped)
+        logger.warning("skipped %d malformed rule rows: %s", len(skipped), skipped)
     return rules

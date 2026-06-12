@@ -209,9 +209,11 @@ def figure_layout(parsed: ParsedDocument) -> dict:
                 continue
             width = chunk.figures[0].width_pt
             if width and width < FULL_WIDTH_THRESHOLD * column:
+                heading = chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
                 narrow.append({
                     "figure_id": chunk.chunk_id,
                     "tab": chunk.tab_title,
+                    "heading": heading,
                     "width_pt": round(width),
                     "pct_of_column": round(100 * width / column),
                 })

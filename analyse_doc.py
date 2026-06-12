@@ -20,7 +20,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from app.analysis import check_links, figure_layout, story, word_frequency
-from app.check_engine import run_word_flagging
+from app.check_engine import run_story_flag, run_word_flagging
 from app.checks import preflight
 from app.docs_parser import DEFAULT_DOCUMENT_TYPES, parse_document
 from app.runlog import setup_logging
@@ -35,13 +35,14 @@ load_dotenv()
 
 
 def main() -> None:
-    doc_id = sys.argv[1] if len(sys.argv) > 1 else TEST_DOC_ID
     log_path = setup_logging("analyse_doc")
     try:
         config = load_config()
     except Exception as exc:  # noqa: BLE001
         log.warning("config not loaded (%s); using defaults", exc)
         config = StyleGuideConfig(document_types=DEFAULT_DOCUMENT_TYPES)
+    doc_id = (sys.argv[1] if len(sys.argv) > 1
+              else config.report_doc_id or TEST_DOC_ID)
     allowed = config.document_types or DEFAULT_DOCUMENT_TYPES
 
     if not preflight(config=config, require_api_key=False, doc_id=doc_id):
@@ -83,6 +84,19 @@ def main() -> None:
     else:
         log.warning("Skipping AI word flagging (no model or API key configured)")
 
+    # AI layer: does the heading sequence tell a convincing story?
+    story_flag: dict = {}
+    story_model = config.model_for("story flag")
+    if headings and story_model and os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            story_flag = run_story_flag(anthropic.Anthropic(), story_model, headings, config)
+            log.info("Story flag (%s): %s - %s", story_model,
+                     story_flag.get("flag"), story_flag.get("explanation"))
+        except Exception as exc:  # noqa: BLE001 — health page works without AI
+            log.warning("story flag failed (%s)", exc)
+    else:
+        log.warning("Skipping story flag (no model or API key configured)")
+
     DATA_DIR.mkdir(exist_ok=True)
     out = DATA_DIR / "analysis.json"
     out.write_text(
@@ -94,6 +108,7 @@ def main() -> None:
                 "links": links,
                 "word_frequency": words,
                 "story": headings,
+                "story_flag": story_flag,
                 "figure_layout": layout,
             },
             indent=2,

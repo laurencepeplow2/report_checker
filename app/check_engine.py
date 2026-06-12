@@ -56,6 +56,35 @@ FLAG_INSTRUCTION = (
     "g = the extract complies with the rule (green)"
 )
 
+REWRITE_CONTEXT_NOTE = (
+    "You may be shown the paragraphs immediately before and after the "
+    "extract, and its section title, as context. Use them only to keep the "
+    "rewrite consistent with the surrounding flow, tense and terminology. "
+    "Rewrite ONLY the extract."
+)
+
+STORY_FLAG_INSTRUCTION = (
+    "You will receive the complete sequence of section and sub-section "
+    "titles from a draft publication, in order. Judge whether reading them "
+    "top to bottom tells a convincing story: a clear narrative arc from "
+    "problem to evidence to conclusion, titles that convey findings rather "
+    "than topics, logical ordering, and no obvious gaps or repetition. "
+    "Answer with a flag - r (the headings do not tell a story), a (partly "
+    "convincing, clear weaknesses) or g (a convincing story) - and a brief "
+    "explanation of at most three sentences naming the strongest and "
+    "weakest points."
+)
+
+STORY_FLAG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "flag": {"type": "string", "enum": ["r", "a", "g"]},
+        "explanation": {"type": "string"},
+    },
+    "required": ["flag", "explanation"],
+    "additionalProperties": False,
+}
+
 REWRITE_INSTRUCTION = (
     "You will receive an extract from the draft and the list of style "
     "rules it breaches. Rewrite the extract so that every listed breach "
@@ -210,13 +239,32 @@ class RewriteResult:
     output_tokens: int
 
 
-def build_rewrite_user_text(rules: list[Rule], chunk: Chunk) -> str:
+def build_rewrite_user_text(
+    rules: list[Rule],
+    chunk: Chunk,
+    context_before: str = "",
+    context_after: str = "",
+) -> str:
     listed = "\n".join(f"{i}. {r.text}" for i, r in enumerate(rules, 1))
+    parts = [f"Rules breached:\n{listed}"]
+
+    section_title = chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
+    parts.append(f'Section: "{section_title}"')
+
+    # Surrounding paragraphs so the rewrite keeps flow, tense and
+    # terminology consistent - explicitly out of scope for the rewrite.
+    if context_before:
+        parts.append("Paragraph BEFORE the extract (context only - do NOT "
+                     f"rewrite it):\n{context_before}")
     label = (
-        f"Extract ({chunk.input_level} from the {chunk.section} of a "
-        f"{chunk.document_type}):"
+        f"THE EXTRACT TO REWRITE ({chunk.input_level} from the "
+        f"{chunk.section} of a {chunk.document_type}):"
     )
-    return f"Rules breached:\n{listed}\n\n{label}\n{_chunk_body(chunk)}"
+    parts.append(f"{label}\n{_chunk_body(chunk)}")
+    if context_after:
+        parts.append("Paragraph AFTER the extract (context only - do NOT "
+                     f"rewrite it):\n{context_after}")
+    return "\n\n".join(parts)
 
 
 def run_rewrite(
@@ -225,6 +273,8 @@ def run_rewrite(
     rules: list[Rule],
     chunk: Chunk,
     config: StyleGuideConfig | None = None,
+    context_before: str = "",
+    context_after: str = "",
 ) -> RewriteResult:
     """Second loop: rewrite the chunk fixing only the breached rules.
 
@@ -236,10 +286,13 @@ def run_rewrite(
         max_tokens=2000,
         system=[{
             "type": "text",
-            "text": f"{role}\n\n{REWRITE_INSTRUCTION}",
+            "text": f"{role}\n\n{REWRITE_INSTRUCTION}\n\n{REWRITE_CONTEXT_NOTE}",
             "cache_control": {"type": "ephemeral"},
         }],
-        messages=[{"role": "user", "content": build_rewrite_user_text(rules, chunk)}],
+        messages=[{
+            "role": "user",
+            "content": build_rewrite_user_text(rules, chunk, context_before, context_after),
+        }],
     )
     suggestion = "".join(b.text for b in response.content if b.type == "text").strip()
     return RewriteResult(
@@ -275,6 +328,36 @@ def run_word_flagging(
         for item in data.get("flagged", [])
         if item["word"].lower() in known
     }
+
+
+def run_story_flag(
+    client: anthropic.Anthropic,
+    model: str,
+    headings: list[dict],
+    config: StyleGuideConfig | None = None,
+) -> dict:
+    """AI layer over "What is my story?": does the heading sequence tell a
+    convincing story? Returns {"flag": r|a|g, "explanation": str}."""
+    import json as _json
+
+    lines = []
+    for h in headings:
+        indent = "  " * min(h.get("level", 0), 3)
+        lines.append(f"{indent}{h['text']}")
+    listing = "\n".join(lines)
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=1000,
+        system=STORY_FLAG_INSTRUCTION,
+        messages=[{
+            "role": "user",
+            "content": f"Section and sub-section titles, in order:\n{listing}",
+        }],
+        output_config={"format": {"type": "json_schema", "schema": STORY_FLAG_SCHEMA}},
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    return _json.loads(text)
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:

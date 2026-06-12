@@ -179,3 +179,45 @@ def story(parsed: ParsedDocument) -> list[dict]:
         h for h in parsed.headings
         if h["level"] == 0 or SECTION_NUMBER_RE.match(h["text"])
     ]
+
+
+# A figure is "full column width" if it spans at least this share of the
+# text column (page width minus margins).
+FULL_WIDTH_THRESHOLD = 0.90
+
+
+def figure_layout(parsed: ParsedDocument) -> dict:
+    """Deterministic layout checks on figures (no AI):
+    - max one figure per sub-section
+    - figures inserted at full column width
+    """
+    multi = []
+    for chunk in parsed.chunks:
+        if chunk.input_level == "subsection" and len(chunk.figures) > 1:
+            heading = chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
+            multi.append({
+                "tab": chunk.tab_title,
+                "heading": heading,
+                "figures": len(chunk.figures),
+            })
+
+    narrow = []
+    column = parsed.column_width_pt
+    if column:
+        for chunk in parsed.chunks:
+            if chunk.input_level != "figure" or not chunk.figures:
+                continue
+            width = chunk.figures[0].width_pt
+            if width and width < FULL_WIDTH_THRESHOLD * column:
+                narrow.append({
+                    "figure_id": chunk.chunk_id,
+                    "tab": chunk.tab_title,
+                    "width_pt": round(width),
+                    "pct_of_column": round(100 * width / column),
+                })
+
+    return {
+        "column_width_pt": round(column),
+        "multi_figure_subsections": multi,
+        "narrow_figures": narrow,
+    }

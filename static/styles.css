@@ -311,6 +311,34 @@ footer a { color: var(--accent); }
 .word-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
 .word-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+.health-check { margin-bottom: 0.9rem; }
+.health-check .check-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.health-check .check-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.health-check.ok .check-icon { background: var(--green); }
+.health-check.bad .check-icon { background: var(--amber); }
+.health-check.bad .check-title { color: var(--amber); }
+.health-check .check-item {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.2rem 0 0 1.75rem;
+}
+
 .story-item { padding: 0.28rem 0; font-size: 0.88rem; line-height: 1.45; }
 .story-item.lvl-0 { font-weight: 700; margin-top: 0.55rem; color: var(--accent); }
 .story-item.lvl-1 { font-weight: 600; }

@@ -232,8 +232,10 @@ function render() {
         <div class="category"></div>
         <div class="rule-text"></div>
       </div>`;
-    card.querySelector(".category").textContent = result.category;
-    card.querySelector(".rule-text").textContent = result.rule;
+    const category = card.querySelector(".category");
+    if (result.category) category.textContent = result.category;
+    else category.remove();
+    card.querySelector(".rule-text").textContent = result.rule;  // example excluded
     cards.appendChild(card);
   }
 
@@ -315,6 +317,40 @@ function renderHealth(data) {
     }
     bars.appendChild(row);
   }
+
+  // Figure layout checks
+  const layout = data.figure_layout || {};
+  const checks = el("layout-checks");
+  checks.innerHTML = "";
+  const addCheck = (ok, title, items) => {
+    const block = document.createElement("div");
+    block.className = `health-check ${ok ? "ok" : "bad"}`;
+    block.innerHTML = `<div class="check-title"><span class="check-icon">${ok ? "✓" : "✗"}</span> <span></span></div>`;
+    block.querySelector(".check-title span:last-child").textContent = title;
+    for (const item of items || []) {
+      const row = document.createElement("div");
+      row.className = "check-item";
+      row.textContent = item;
+      block.appendChild(row);
+    }
+    checks.appendChild(block);
+  };
+  const multi = layout.multi_figure_subsections || [];
+  addCheck(
+    multi.length === 0,
+    multi.length === 0
+      ? "Max one figure per sub-section"
+      : `${multi.length} sub-section(s) with more than one figure`,
+    multi.map((m) => `${m.tab} - "${m.heading}" has ${m.figures} figures`)
+  );
+  const narrow = layout.narrow_figures || [];
+  addCheck(
+    narrow.length === 0,
+    narrow.length === 0
+      ? `Figures at full column width (column ≈ ${layout.column_width_pt || "?"}pt)`
+      : `${narrow.length} figure(s) below full column width`,
+    narrow.map((n) => `${n.tab} - ${n.pct_of_column}% of column width`)
+  );
 
   // Story
   const story = el("story-list");

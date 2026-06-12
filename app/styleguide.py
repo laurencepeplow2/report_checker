@@ -5,7 +5,9 @@ case drifts. The model id keeps its original case but is whitespace-stripped.
 """
 from __future__ import annotations
 
+import logging
 import os
+import re
 from dataclasses import dataclass, field
 
 from app.auth import drive_service, sheets_service
@@ -43,9 +45,10 @@ class StyleGuideConfig:
 @dataclass
 class Rule:
     rule_id: str            # row-derived, e.g. "rule-002" (sheet row number)
-    category: str
-    text: str
+    category: str           # no longer in the sheet; kept for output compat
+    text: str               # the rule itself ("Rule:" prefix stripped)
     input_level: str        # normalised chunk level: paragraph | figure | subsection
+    example: str = ""       # "Example:" part - fed to the AI, hidden in the UI
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
 
@@ -136,24 +139,38 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     )
 
 
+# Rules are written as "Rule: <the rule> Example: <a breach example>".
+RULE_EXAMPLE_RE = re.compile(
+    r"^\s*(?:Rule\s*:)?\s*(?P<rule>.*?)(?:\s*Examples?\s*:\s*(?P<example>.*))?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def split_rule_example(raw: str) -> tuple[str, str]:
+    match = RULE_EXAMPLE_RE.match(" ".join(raw.split()))
+    if not match:
+        return raw.strip(), ""
+    return (match.group("rule") or "").strip(), (match.group("example") or "").strip()
+
+
 def load_rules(sheet_id: str | None = None) -> list[Rule]:
     """Read the TE_style_rules tab.
 
-    Column layout (by position — the header of column D currently reads
+    Column layout (by position — the header of column C currently reads
     "report" but the column holds the input level):
-      A include (yes/no) | B category | C rules | D input_level |
-      E report | F briefing | G pr |
-      H cover | I executive summary | J main text | K annex
+      A include (yes/no) | B rules ("Rule: ... Example: ...") |
+      C input_level | D report | E briefing | F pr |
+      G cover | H executive summary | I main text | J annex
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:K1000"
+        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:J1000"
     ).execute().get("values", [])
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
-    doc_type_cols = {4: "report", 5: "briefing", 6: "pr"}
-    section_cols = {7: "cover", 8: "executive summary", 9: "main text", 10: "annex"}
+    doc_type_cols = {3: "report", 4: "briefing", 5: "pr"}
+    section_cols = {6: "cover", 7: "executive summary", 8: "main text", 9: "annex"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
@@ -163,19 +180,22 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
 
         if cell(0) != "yes":
             continue
-        text = (row[2].strip() if len(row) > 2 else "")
-        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(3))
+        raw = (row[1].strip() if len(row) > 1 else "")
+        text, example = split_rule_example(raw)
+        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(2))
         if not text or level is None:
-            skipped.append(f"row {row_num}: missing rule text or bad input_level {cell(3)!r}")
+            skipped.append(f"row {row_num}: missing rule text or bad input_level {cell(2)!r}")
             continue
         rules.append(Rule(
             rule_id=f"rule-{row_num:03d}",
-            category=" ".join((row[1] if len(row) > 1 else "").split()),
+            category="",
             text=text,
             input_level=level,
+            example=example,
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))
     if skipped:
-        print(f"WARNING: skipped {len(skipped)} malformed rule rows: {skipped}")
+        logging.getLogger(__name__).warning(
+            "skipped %d malformed rule rows: %s", len(skipped), skipped)
     return rules

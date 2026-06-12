@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -21,8 +22,12 @@ from dotenv import load_dotenv
 from app.check_engine import (
     build_system, build_user_text, estimate_cost, run_check, run_rewrite,
 )
+from app.checks import post_run_checks, preflight
 from app.docs_parser import Chunk, parse_document
+from app.runlog import setup_logging
 from app.styleguide import load_config, load_rules
+
+log = logging.getLogger("report_checker.test_run")
 
 TEST_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -99,15 +104,18 @@ def pick_sample(chunks: list[Chunk]) -> list[Chunk]:
 
 def main() -> None:
     doc_id = sys.argv[1] if len(sys.argv) > 1 else TEST_DOC_ID
+    log_path = setup_logging("test_run")
 
     config = load_config()
     model = config.model_for("rag report")
     rewrite_model = config.model_for("suggested improvement")
-    if not model:
-        raise RuntimeError("claude_model_selection is empty in the config tab.")
     rules = load_rules()
-    print(f"Models: checks={model} rewrites={rewrite_model} | "
-          f"severity: {TEST_SEVERITY} (forced) | {len(rules)} active rules")
+
+    if not preflight(config=config, rules=rules, require_api_key=True, doc_id=doc_id):
+        sys.exit(1)
+
+    log.info("Models: checks=%s rewrites=%s | severity: %s (forced) | %d active rules",
+             model, rewrite_model, TEST_SEVERITY, len(rules))
 
     parsed = parse_document(
         doc_id,
@@ -115,13 +123,11 @@ def main() -> None:
         image_dir=DATA_DIR / "images",
     )
     sample = pick_sample(parsed.chunks)
-    print(f"Document: {parsed.title!r} ({parsed.document_type}), "
-          f"{len(parsed.chunks)} chunks; sampled {len(sample)}")
+    log.info("Document: %r (%s), %d chunks; sampled %d",
+             parsed.title, parsed.document_type, len(parsed.chunks), len(sample))
 
     client = anthropic.Anthropic()
     system_prompt = build_system(TEST_SEVERITY, config)
-    print(f"role_context from sheet: {'yes' if config.role_context else 'NO - using fallback'}; "
-          f"severity instructions from sheet: {sorted(config.severity_instructions)}")
 
     rows = []
     suggestions: dict[str, str] = {}  # chunk_id -> rewrite
@@ -131,8 +137,9 @@ def main() -> None:
             r for r in rules
             if r.applies_to(chunk.input_level, parsed.document_type, chunk.section)
         ]
-        print(f"\n{chunk.chunk_id} [{chunk.input_level} | {chunk.tab_title} | "
-              f"{chunk.section}]: {len(applicable)} applicable rules")
+        log.info("%s [%s | %s | %s]: %d applicable rules",
+                 chunk.chunk_id, chunk.input_level, chunk.tab_title,
+                 chunk.section, len(applicable))
         breached: list = []
         for rule in applicable:
             result = run_check(client, model, TEST_SEVERITY, rule, chunk, config)
@@ -140,7 +147,7 @@ def main() -> None:
             total_out += result.output_tokens
             if result.flag in ("r", "a"):
                 breached.append(rule)
-            print(f"  {rule.rule_id} -> {result.flag}")
+            log.info("  %s -> %s", rule.rule_id, result.flag)
             rows.append({
                 "chunk_id": chunk.chunk_id,
                 "tab": chunk.tab_title,
@@ -150,6 +157,7 @@ def main() -> None:
                 "rule_id": rule.rule_id,
                 "category": rule.category,
                 "rule": rule.text,
+                "example": rule.example,
                 "severity": TEST_SEVERITY,
                 "flag": result.flag,
                 "raw_response": result.raw_response,
@@ -167,8 +175,8 @@ def main() -> None:
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
             suggestions[chunk.chunk_id] = rewrite.suggestion
-            print(f"  rewrite ({len(breached)} breached rules) -> "
-                  f"{len(rewrite.suggestion)} chars")
+            log.info("  rewrite (%d breached rules) -> %d chars",
+                     len(breached), len(rewrite.suggestion))
 
     for row in rows:
         row["suggestion"] = suggestions.get(row["chunk_id"], "")
@@ -221,14 +229,18 @@ def main() -> None:
     )
 
     update_flag_history(parsed.title, rows)
-    print(f"\nFlag history updated -> {FLAG_HISTORY_CSV.name}")
+    log.info("Flag history updated -> %s", FLAG_HISTORY_CSV.name)
 
     flags = [r["flag"] for r in rows]
-    print(f"{len(rows)} checks -> {out_path} (+ test_run.json)")
-    print(f"Flags: r={flags.count('r')} a={flags.count('a')} g={flags.count('g')} "
-          f"invalid={flags.count('invalid')}")
-    print(f"Tokens: {total_in} in / {total_out} out "
-          f"(~${estimate_cost(total_in, total_out):.4f})")
+    log.info("%d checks -> %s (+ test_run.json)", len(rows), out_path)
+    log.info("Flags: r=%d a=%d g=%d invalid=%d",
+             flags.count("r"), flags.count("a"), flags.count("g"),
+             flags.count("invalid"))
+    log.info("Tokens: %d in / %d out (~$%.4f)",
+             total_in, total_out, estimate_cost(total_in, total_out))
+
+    post_run_checks(parsed, rows, suggestions)
+    log.info("Full log: %s", log_path)
 
 
 if __name__ == "__main__":

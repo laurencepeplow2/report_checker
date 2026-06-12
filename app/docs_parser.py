@@ -64,6 +64,7 @@ class Figure:
     image_path: str | None
     content_uri: str | None
     description: str  # alt text / title if the author set one
+    width_pt: float = 0.0  # rendered width in points, for layout checks
 
 
 @dataclass
@@ -81,6 +82,7 @@ class Chunk:
     tab_id: str = ""          # for deep links into the Google Doc
     heading_id: str = ""      # nearest heading anchor (#heading=...)
     approx_page: int = 0      # rough printed-page estimate
+    formatted_text: str = ""  # text with **bold**, *italic*, <u>..</u>, [link](url)
 
 
 @dataclass
@@ -91,6 +93,7 @@ class ParsedDocument:
     chunks: list[Chunk]
     links: list[dict] = field(default_factory=list)     # {url, text, tab}
     headings: list[dict] = field(default_factory=list)  # {tab, level, text} in doc order
+    column_width_pt: float = 0.0  # page width minus margins, for layout checks
 
     def by_level(self, level: str) -> list[Chunk]:
         return [c for c in self.chunks if c.input_level == level]
@@ -100,6 +103,35 @@ def _paragraph_text(paragraph: dict) -> str:
     return "".join(
         el.get("textRun", {}).get("content", "")
         for el in paragraph.get("elements", [])
+    )
+
+
+def _run_markup(run: dict) -> str:
+    """One text run with its formatting marked inline: **bold**, *italic*,
+    <u>underlined</u>, [link text](url). Some style rules depend on this."""
+    content = run.get("content", "")
+    stripped = content.rstrip("\n")
+    trail = content[len(stripped):]
+    if not stripped.strip():
+        return content
+    style = run.get("textStyle", {})
+    url = style.get("link", {}).get("url")
+    if style.get("bold"):
+        stripped = f"**{stripped}**"
+    if style.get("italic"):
+        stripped = f"*{stripped}*"
+    if style.get("underline") and not url:  # links are underlined by default
+        stripped = f"<u>{stripped}</u>"
+    if url:
+        stripped = f"[{stripped}]({url})"
+    return stripped + trail
+
+
+def _paragraph_formatted(paragraph: dict) -> str:
+    return "".join(
+        _run_markup(el["textRun"])
+        for el in paragraph.get("elements", [])
+        if "textRun" in el
     )
 
 
@@ -209,6 +241,7 @@ def parse_document(
     chunks: list[Chunk] = []
     links: list[dict] = []
     headings: list[dict] = []
+    column_width_pt = 0.0
     order = 0
 
     for tab in tabs:
@@ -220,6 +253,12 @@ def parse_document(
             continue  # cover content is otherwise discarded
 
         section = _section_for_tab(title)
+        if not column_width_pt:
+            doc_style = tab.get("documentTab", {}).get("documentStyle", {})
+            page = doc_style.get("pageSize", {}).get("width", {}).get("magnitude", 0)
+            margins = (doc_style.get("marginLeft", {}).get("magnitude", 0)
+                       + doc_style.get("marginRight", {}).get("magnitude", 0))
+            column_width_pt = max(page - margins, 0)
         order = _parse_tab(tab, title, section, chunks, order, image_dir,
                            links, headings)
 
@@ -239,6 +278,7 @@ def parse_document(
         chunks=chunks,
         links=links,
         headings=headings,
+        column_width_pt=column_width_pt,
     )
 
 
@@ -264,6 +304,7 @@ def _parse_tab(
 
     # Accumulator for the current subsection
     sub_paras: list[str] = []
+    sub_paras_fmt: list[str] = []
     sub_figures: list[Figure] = []
     sub_heading_path: list[str] = []
     sub_index = 0
@@ -284,6 +325,7 @@ def _parse_tab(
             heading_path=list(sub_heading_path),
             order=order,
             text="\n\n".join(sub_paras),
+            formatted_text="\n\n".join(sub_paras_fmt),
             figures=list(sub_figures),
             tab_id=tab_id,
             heading_id=state["heading_id"],
@@ -291,6 +333,7 @@ def _parse_tab(
         order += 1
         sub_index += 1
         sub_paras.clear()
+        sub_paras_fmt.clear()
         sub_figures.clear()
 
     para_index = fig_index = 0
@@ -315,10 +358,12 @@ def _parse_tab(
                     kind="table",
                     tab_id=tab_id,
                     heading_id=state["heading_id"],
+                    formatted_text=text,
                 ))
                 order += 1
                 para_index += 1
                 sub_paras.append(text)
+                sub_paras_fmt.append(text)
             continue
 
         if "paragraph" not in element:
@@ -358,6 +403,7 @@ def _parse_tab(
                 .get("embeddedObject", {})
             )
             uri = embedded.get("imageProperties", {}).get("contentUri")
+            width_pt = embedded.get("size", {}).get("width", {}).get("magnitude", 0.0)
             description = (
                 embedded.get("title", "") + " " + embedded.get("description", "")
             ).strip()
@@ -372,6 +418,7 @@ def _parse_tab(
                 image_path=image_path,
                 content_uri=uri,
                 description=description,
+                width_pt=width_pt,
             )
             chunks.append(Chunk(
                 chunk_id=figure.figure_id,
@@ -392,6 +439,7 @@ def _parse_tab(
             sub_figures.append(figure)
 
         if text:
+            formatted = _paragraph_formatted(paragraph).strip()
             chunks.append(Chunk(
                 chunk_id=f"{tab_id}-para-{para_index}",
                 input_level="paragraph",
@@ -401,12 +449,14 @@ def _parse_tab(
                 heading_path=heading_path(),
                 order=order,
                 text=text,
+                formatted_text=formatted,
                 tab_id=tab_id,
                 heading_id=state["heading_id"],
             ))
             order += 1
             para_index += 1
             sub_paras.append(text)
+            sub_paras_fmt.append(formatted)
 
     flush_subsection()
     return order

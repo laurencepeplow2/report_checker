@@ -110,16 +110,38 @@ def build_system(severity: str, config: StyleGuideConfig | None = None) -> str:
     return "\n\n".join([role, severity_text, FLAG_INSTRUCTION])
 
 
+FORMATTING_NOTE = (
+    "Formatting in the extract is marked inline: **bold**, *italic*, "
+    "<u>underlined</u>, [link text](url)."
+)
+
+
+def _rule_block(rule: Rule) -> str:
+    block = f"Rule:\n{rule.text}"
+    if rule.example:
+        block += f"\nExample: {rule.example}"
+    return block
+
+
+def _chunk_body(chunk: Chunk) -> str:
+    """The extract as fed to the model - formatted version when it carries
+    formatting (some rules depend on bold/underline/links)."""
+    formatted = chunk.formatted_text or chunk.text
+    if formatted != chunk.text:
+        return f"{FORMATTING_NOTE}\n{formatted}"
+    return chunk.text
+
+
 def build_user_text(rule: Rule, chunk: Chunk) -> str:
     intro = (
-        f"Rule ({rule.category}):\n{rule.text}\n\n"
+        f"{_rule_block(rule)}\n\n"
         f"Extract ({chunk.input_level} from the {chunk.section} of a "
         f"{chunk.document_type}):"
     )
     if chunk.input_level == "figure":
         caption = chunk.text or "(no caption or alt text provided)"
         return f"{intro}\nThe figure is attached as an image. Caption/alt text: {caption}"
-    return f"{intro}\n{chunk.text}"
+    return f"{intro}\n{_chunk_body(chunk)}"
 
 
 # ---- API calls ------------------------------------------------------------
@@ -189,12 +211,12 @@ class RewriteResult:
 
 
 def build_rewrite_user_text(rules: list[Rule], chunk: Chunk) -> str:
-    listed = "\n".join(f"{i}. ({r.category}) {r.text}" for i, r in enumerate(rules, 1))
+    listed = "\n".join(f"{i}. {r.text}" for i, r in enumerate(rules, 1))
     label = (
         f"Extract ({chunk.input_level} from the {chunk.section} of a "
         f"{chunk.document_type}):"
     )
-    return f"Rules breached:\n{listed}\n\n{label}\n{chunk.text}"
+    return f"Rules breached:\n{listed}\n\n{label}\n{_chunk_body(chunk)}"
 
 
 def run_rewrite(

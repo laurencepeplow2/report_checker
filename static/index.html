@@ -71,22 +71,29 @@
     <div class="stats-strip">
       <div class="stat"><span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span></div>
       <div class="stat"><span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span></div>
-      <div class="stat"><span id="stat-total" class="bignum">–</span><span class="muted">total flags</span></div>
       <div class="stat"><span id="stat-pages" class="bignum">–</span><span class="muted">&asymp; pages (excl. annex)</span></div>
     </div>
     <div class="health-grid">
-      <div class="panel">
-        <div class="panel-title">Broken links</div>
-        <div class="bignum-row">
-          <span id="broken-count" class="bignum">–</span>
-          <span id="links-meta" class="muted"></span>
+      <div class="health-col">
+        <div class="panel">
+          <div class="panel-title">Broken links</div>
+          <div class="bignum-row">
+            <span id="broken-count" class="bignum">–</span>
+            <span id="links-meta" class="muted"></span>
+          </div>
+          <div id="broken-links"></div>
         </div>
-        <div id="broken-links"></div>
+
+        <div class="panel">
+          <div class="panel-title">Figure layout</div>
+          <p class="muted small">Deterministic layout checks &mdash; no AI involved.</p>
+          <div id="layout-checks"></div>
+        </div>
       </div>
 
       <div class="panel">
-        <div class="panel-title">Overused words</div>
-        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed (edit <code>word_exclusions.csv</code>). <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
+        <div class="panel-title">Common words</div>
+        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed. <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
         <div id="word-bars"></div>
       </div>
 
@@ -94,12 +101,6 @@
         <div class="panel-title">What is my story?</div>
         <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
         <div id="story-list"></div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">Figure layout</div>
-        <p class="muted small">Deterministic layout checks &mdash; no AI involved.</p>
-        <div id="layout-checks"></div>
       </div>
     </div>
   </section>

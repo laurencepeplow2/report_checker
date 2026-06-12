@@ -76,7 +76,6 @@ async function load() {
   }
   el("stat-red").textContent = String(reds);
   el("stat-amber").textContent = String(ambers);
-  el("stat-total").textContent = String(reds + ambers);
 
   applyFilter();
 
@@ -184,11 +183,13 @@ function render() {
     el("chunk-meta").appendChild(tag);
   }
 
-  // Location: section title path + approximate page + deep link to the doc
+  // Location: numbered section title (long heading-styled statements are
+  // not real section titles) + approximate page + deep link to the doc
+  const SECTION_NUM_RE = /^\s*(\d+(\.\d+)*|[IVXLCDM]+(\.\d+)+)[.)]?\s/i;
   const pieces = [];
-  if (chunk.heading_path && chunk.heading_path.length) {
-    pieces.push(chunk.heading_path[chunk.heading_path.length - 1]);
-  }
+  const lastHeading = chunk.heading_path?.length
+    ? chunk.heading_path[chunk.heading_path.length - 1] : "";
+  if (lastHeading && SECTION_NUM_RE.test(lastHeading)) pieces.push(lastHeading);
   if (chunk.approx_page) pieces.push(`≈ p.${chunk.approx_page}`);
   location.textContent = pieces.join("  ·  ");
   if (docId && chunk.tab_id) {

@@ -108,6 +108,13 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   align-items: start;
 }
 
+.health-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
 .panel {
   background: var(--card);
   border: 1px solid var(--line);

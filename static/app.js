@@ -12,10 +12,14 @@ const FLAG_ORDER = { r: 0, a: 1 };
 const el = (id) => document.getElementById(id);
 
 let docId = "";
+let currentDoc = "";  // ?doc= value for API calls ("" = default report)
 let allChunks = [];   // chunks with >=1 breach, results filtered to r/a
 let view = [];
 let index = 0;
 let checked = new Set();  // chunk_ids marked as manually checked
+let editMode = false;
+let editsByChunk = {};    // chunk_id -> {at, text}: committed (locked) edits
+let editorChunkId = null; // which chunk the editor is currently seeded with
 
 /* ---------------- persistence for "checked" boxes ---------------- */
 
@@ -43,6 +47,8 @@ async function fetchJson(path, embeddedKey) {
 }
 
 async function load() {
+  // Exports are read-only snapshots: no live edits possible.
+  if (window.__RC_DATA__) el("edit-mode-btn").hidden = true;
   // Report selector: the config's report_link can hold several documents.
   // Hidden for exports (single embedded report) and single-report setups.
   if (!window.__RC_DATA__) {
@@ -71,7 +77,12 @@ async function load() {
 }
 
 async function loadReport(doc) {
+  currentDoc = doc || "";
   const query = doc ? `?doc=${encodeURIComponent(doc)}` : "";
+  editsByChunk = {};
+  if (!window.__RC_DATA__) {
+    try { editsByChunk = await fetchJson(`/api/edits${query}`, "edits"); } catch {}
+  }
   let runData = null;
   try {
     runData = await fetchJson(`/api/run-data${query}`, "run");
@@ -89,15 +100,15 @@ async function loadReport(doc) {
 
   docId = runData.doc_id || "";
   loadChecked();
+  const docType = (runData.document_type || "")
+    .replace(/^./, (c) => c.toUpperCase());
   el("doc-meta").textContent =
-    `${runData.title} - ${runData.document_type} - severity: ${runData.severity} - ${runData.model}`;
+    `${runData.title} - ${docType} - Severity: ${runData.severity}`
+    + (runData.run_date ? ` - Date: ${runData.run_date}` : "");
 
-  const total = runData.chunks.length;
   allChunks = runData.chunks
     .map((c) => ({ ...c, breaches: c.results.filter((r) => r.flag === "r" || r.flag === "a") }))
     .filter((c) => c.breaches.length > 0);
-  el("issue-summary").textContent =
-    `${allChunks.length} of ${total} checked chunks have issues`;
 
   // Section toggle: report tabs in document order (rebuilt per report)
   const sectionSelect = el("section-select");
@@ -148,7 +159,24 @@ function applyFilter() {
 
 function updateProgress() {
   const done = allChunks.filter((c) => checked.has(c.chunk_id)).length;
-  el("progress-summary").textContent = `- ${done} / ${allChunks.length} checked`;
+  el("progress-summary").textContent = `${done} / ${allChunks.length} checked`;
+}
+
+/* Render our inline formatting markup (**bold**, *italic*, <u>..</u>,
+ * [text](url)) as safe HTML - everything else is escaped first. */
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function formattedHtml(text) {
+  let s = escapeHtml(text);
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (m, label, url) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[\s(>])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+  s = s.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/g, "<u>$1</u>");
+  return s;
 }
 
 /* Word-level diff (LCS) between original and suggestion. */
@@ -211,6 +239,9 @@ function render() {
   if (!view.length) {
     content.textContent = "No flagged chunks match the current filters.";
     content.classList.add("empty");
+    el("editor-area").hidden = true;
+    el("committed-badge").hidden = true;
+    suggestion.hidden = false;
     suggestion.textContent = "Nothing to improve here.";
     suggestion.classList.add("empty");
     el("breach-count").textContent = "0";
@@ -267,6 +298,9 @@ function render() {
       cap.textContent = chunk.text;
       content.appendChild(cap);
     }
+  } else if (chunk.formatted_text && chunk.formatted_text !== chunk.text) {
+    // show the report's bold / italic / underline / hyperlinks
+    content.innerHTML = formattedHtml(chunk.formatted_text);
   } else {
     content.textContent = chunk.text;
   }
@@ -293,10 +327,35 @@ function render() {
     cards.appendChild(card);
   }
 
-  if (chunk.input_level === "figure") {
+  const committed = editsByChunk[chunk.chunk_id];
+  const editorArea = el("editor-area");
+  const badge = el("committed-badge");
+  const diffNote = el("diff-note");
+  editorArea.hidden = true;
+  badge.hidden = true;
+  diffNote.hidden = false;
+  suggestion.hidden = false;
+
+  if (committed) {
+    // one change per paragraph: locked after a commit
+    badge.hidden = false;
+    badge.title = `committed ${committed.at || ""}`;
+    diffNote.hidden = true;
+    suggestion.classList.remove("empty");
+    suggestion.textContent = committed.text;
+  } else if (chunk.input_level === "figure") {
     suggestion.classList.add("empty");
     suggestion.textContent = "Suggestions are not generated for figures - "
       + "use the breached rules on the left to fix the figure by hand.";
+  } else if (editMode && chunk.suggestion) {
+    // live-edit mode: editable suggestion + commit/revert
+    suggestion.hidden = true;
+    diffNote.hidden = true;
+    editorArea.hidden = false;
+    if (editorChunkId !== chunk.chunk_id) {
+      el("suggestion-editor").innerHTML = escapeHtml(chunk.suggestion);
+      editorChunkId = chunk.chunk_id;
+    }
   } else if (chunk.suggestion) {
     suggestion.classList.remove("empty");
     renderDiff(suggestion, chunk.text, chunk.suggestion);
@@ -492,6 +551,130 @@ el("reviewed-box").addEventListener("change", (e) => {
   el("extract-panel").classList.toggle("is-checked", e.target.checked);
   updateProgress();
 });
+/* ---------------- editor mode: live edits to the Google Doc ---------- */
+
+const EDIT_CAUTION =
+  "Caution: you can now make live changes to your document, please check "
+  + "the changes in a browser on a separate screen.";
+
+el("edit-mode-btn").addEventListener("click", () => {
+  if (!editMode) {
+    if (!window.confirm(EDIT_CAUTION)) return;
+    editMode = true;
+  } else {
+    editMode = false;
+  }
+  editorChunkId = null;
+  el("edit-mode-btn").classList.toggle("active", editMode);
+  el("edit-mode-btn").innerHTML = editMode ? "&#10005; Exit edit mode" : "&#9998; Edit mode";
+  render();
+});
+
+document.querySelectorAll(".editor-toolbar button").forEach((btn) => {
+  btn.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection
+  btn.addEventListener("click", () => {
+    const cmd = btn.dataset.cmd;
+    if (cmd === "link") {
+      const url = window.prompt("Link URL (https://...):", "https://");
+      if (url && /^https?:\/\//.test(url)) document.execCommand("createLink", false, url);
+    } else {
+      document.execCommand(cmd, false, null);
+    }
+    el("suggestion-editor").focus();
+  });
+});
+
+el("revert-btn").addEventListener("click", () => {
+  const chunk = view[index];
+  if (chunk) el("suggestion-editor").innerHTML = escapeHtml(chunk.suggestion || "");
+});
+
+/* Walk the contenteditable DOM into style runs for the Docs API. */
+function collectRuns(node, style) {
+  const runs = [];
+  for (const child of node.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      const text = child.textContent.replace(/ /g, " ");
+      if (text) runs.push({ ...style, text });
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const tag = child.tagName;
+      if (tag === "BR") { runs.push({ ...style, text: "\n" }); continue; }
+      const next = { ...style };
+      if (tag === "B" || tag === "STRONG") next.bold = true;
+      if (tag === "I" || tag === "EM") next.italic = true;
+      if (tag === "U") next.underline = true;
+      if (tag === "A" && child.href) next.link = child.href;
+      if ((tag === "DIV" || tag === "P") && runs.length
+          && !runs[runs.length - 1].text.endsWith("\n")) {
+        runs.push({ ...style, text: "\n" });
+      }
+      runs.push(...collectRuns(child, next));
+    }
+  }
+  return runs;
+}
+
+function mergeRuns(runs) {
+  const merged = [];
+  for (const run of runs) {
+    const last = merged[merged.length - 1];
+    if (last && last.bold === run.bold && last.italic === run.italic
+        && last.underline === run.underline && (last.link || "") === (run.link || "")) {
+      last.text += run.text;
+    } else {
+      merged.push({ ...run });
+    }
+  }
+  return merged.filter((r) => r.text);
+}
+
+function changeRatio(original, edited) {
+  const ops = diffWords(original, edited);
+  let changed = 0, total = 0;
+  for (const op of ops) {
+    const words = op.text.trim() ? op.text.trim().split(/\s+/).length : 0;
+    if (op.type !== "add") total += words;
+    if (op.type !== "same") changed += words;
+  }
+  return total ? changed / total : 1;
+}
+
+el("commit-btn").addEventListener("click", async () => {
+  const chunk = view[index];
+  if (!chunk) return;
+  const runs = mergeRuns(collectRuns(el("suggestion-editor"),
+    { bold: false, italic: false, underline: false, link: "" }));
+  const plain = runs.map((r) => r.text).join("").trim();
+  if (!plain) { window.alert("The edited text is empty."); return; }
+
+  if (changeRatio(chunk.text, plain) > 0.5
+      && !window.confirm("This edit changes more than 50% of the original "
+                         + "paragraph. Are you sure?")) {
+    return;
+  }
+
+  const btn = el("commit-btn");
+  btn.disabled = true;
+  btn.textContent = "Committing...";
+  try {
+    const resp = await fetch("/api/commit-edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ doc: currentDoc, chunk_id: chunk.chunk_id, runs }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+    editsByChunk[chunk.chunk_id] = { at: new Date().toISOString(), text: plain };
+    editorChunkId = null;
+    render();
+  } catch (err) {
+    window.alert(`Commit failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Commit edit";
+  }
+});
+
 el("copy-btn").addEventListener("click", async () => {
   const chunk = view[index];
   if (chunk?.suggestion) {
@@ -501,7 +684,8 @@ el("copy-btn").addEventListener("click", async () => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT"
+      || e.target.isContentEditable) return;
   if (e.key === "ArrowLeft") el("prev-btn").click();
   if (e.key === "ArrowRight") el("next-btn").click();
 });

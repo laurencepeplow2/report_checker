@@ -12,7 +12,8 @@ from googleapiclient.discovery import build
 load_dotenv()
 
 SCOPES = [
-    "https://www.googleapis.com/auth/documents.readonly",
+    # write scope: editor mode commits reviewed suggestions to the doc
+    "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
 ]

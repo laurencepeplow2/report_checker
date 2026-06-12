@@ -270,9 +270,10 @@ def build_check_params(
     if chunk.input_level == "figure":
         content.extend(_figure_content(rule, chunk))
     content.append({"type": "text", "text": build_user_text(rule, chunk)})
+    max_tokens = config.max_tokens_for("rag report", 4, 4) if config else 4
     return {
         "model": model,
-        "max_tokens": 4,
+        "max_tokens": max_tokens,
         "system": _system_blocks(build_system(severity, config), config),
         "messages": [{"role": "user", "content": content}],
     }
@@ -377,9 +378,11 @@ def build_rewrite_params(
     context_before: str = "",
     context_after: str = "",
 ) -> dict:
+    max_tokens = (config.max_tokens_for("suggested improvement", 2000, 500)
+                  if config else 2000)
     return {
         "model": model,
-        "max_tokens": 2000,
+        "max_tokens": max_tokens,
         "system": _system_blocks(_rewrite_system_text(config), config),
         "messages": [{
             "role": "user",
@@ -484,7 +487,8 @@ def run_word_flagging(
     listing = "\n".join(f"{w['word']} ({w['count']})" for w in words)
     response = client.messages.create(
         model=model,
-        max_tokens=1500,
+        max_tokens=(config.max_tokens_for("overused words", 1500, 400)
+                    if config else 1500),
         system=_override(config, "word_flag_instruction", WORD_FLAG_INSTRUCTION),
         messages=[{"role": "user", "content": f"Most frequent words:\n{listing}"}],
         output_config={"format": {"type": "json_schema", "schema": WORD_FLAG_SCHEMA}},
@@ -517,7 +521,8 @@ def run_story_flag(
 
     response = client.messages.create(
         model=model,
-        max_tokens=1000,
+        max_tokens=(config.max_tokens_for("story flag", 1000, 300)
+                    if config else 1000),
         system=_override(config, "story_flag_instruction", STORY_FLAG_INSTRUCTION),
         messages=[{
             "role": "user",

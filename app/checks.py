@@ -98,14 +98,15 @@ def preflight(config=None, rules=None, require_api_key: bool = True,
 
     # 4. rules
     if rules is not None:
-        if not rules:
-            results.append(Check("style rules", "FAIL", "no active rules (include=yes)"))
+        ai_rules = [r for r in rules if not getattr(r, "coded", False)]
+        if not ai_rules:
+            results.append(Check("style rules", "FAIL", "no active AI rules (include=yes)"))
         else:
-            no_example = sum(1 for r in rules if not r.example)
-            detail = f"{len(rules)} active"
+            no_example = sum(1 for r in ai_rules if not r.example)
+            detail = f"{len(ai_rules)} AI, {len(rules) - len(ai_rules)} coded"
             if no_example:
                 detail += f"; {no_example} without an Example:"
-            levels = {r.input_level for r in rules}
+            levels = {r.input_level for r in ai_rules}
             results.append(Check("style rules", "PASS", f"{detail}; levels: {sorted(levels)}"))
 
     # 5. document access

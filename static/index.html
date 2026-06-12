@@ -36,10 +36,10 @@
         <select id="section-select">
           <option value="all">All sections</option>
         </select>
-        <span id="issue-summary" class="muted"></span>
         <span id="progress-summary" class="muted"></span>
       </div>
       <div class="toolbar-right">
+        <button id="edit-mode-btn" title="Make live changes to the document">&#9998; Edit mode</button>
         <button id="prev-btn">&#8592; Prev</button>
         <span id="position" class="position"></span>
         <button id="next-btn">Next &#8594;</button>
@@ -62,9 +62,26 @@
       </div>
 
       <div class="panel" id="suggestion-panel">
-        <div class="panel-title">Suggested improvement</div>
-        <p class="muted small">Changes vs the original are <ins class="diff-add">highlighted</ins>.</p>
+        <div class="panel-title">Suggested improvement
+          <span id="committed-badge" class="committed-badge" hidden>Committed to doc &#10003;</span>
+        </div>
+        <p class="muted small" id="diff-note">Changes vs the original are <ins class="diff-add">highlighted</ins>.</p>
         <div id="suggestion-content" class="reading"></div>
+        <div id="editor-area" hidden>
+          <div class="editor-toolbar">
+            <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+            <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+            <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+            <button type="button" data-cmd="link" title="Insert link">&#128279;</button>
+          </div>
+          <div id="suggestion-editor" class="reading editor" contenteditable="true"></div>
+          <div class="editor-actions">
+            <button id="commit-btn" class="primary">Commit edit</button>
+            <button id="revert-btn">Revert to suggestion</button>
+          </div>
+          <p class="muted small">Commit replaces this paragraph in the Google Doc.
+            Once committed, the paragraph is locked. Tick "Checked" instead to reject.</p>
+        </div>
         <button id="copy-btn" hidden>Copy suggestion</button>
       </div>
     </div>
@@ -73,8 +90,11 @@
   <!-- ===================== HEALTH ===================== -->
   <section id="view-health" class="view" hidden>
     <div class="stats-strip">
-      <div class="stat"><span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span></div>
-      <div class="stat"><span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span></div>
+      <div class="stat stat-flags">
+        <span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span>
+        <span class="stat-divider"></span>
+        <span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span>
+      </div>
       <div class="stat" id="stat-pages-card">
         <span id="stat-pages" class="bignum">–</span>
         <span class="muted" id="stat-pages-label">&asymp; pages (excl. annex)</span>
@@ -82,30 +102,27 @@
       </div>
     </div>
     <div class="health-grid">
-      <div class="health-col">
-        <div class="panel">
-          <div class="panel-title">Broken links</div>
-          <div class="bignum-row">
-            <span id="broken-count" class="bignum">–</span>
-            <span id="links-meta" class="muted"></span>
-          </div>
-          <div id="broken-links"></div>
+      <div class="panel panel-links">
+        <div class="panel-title">Broken links</div>
+        <div class="bignum-row">
+          <span id="broken-count" class="bignum">–</span>
+          <span id="links-meta" class="muted"></span>
         </div>
-
-        <div class="panel">
-          <div class="panel-title">Figure layout</div>
-          <p class="muted small">Deterministic layout checks &mdash; no AI involved.</p>
-          <div id="layout-checks"></div>
-        </div>
+        <div id="broken-links"></div>
       </div>
 
-      <div class="panel">
+      <div class="panel panel-layout">
+        <div class="panel-title">Figure layout</div>
+        <div id="layout-checks"></div>
+      </div>
+
+      <div class="panel panel-words">
         <div class="panel-title">Common words</div>
         <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed. <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
         <div id="word-bars"></div>
       </div>
 
-      <div class="panel">
+      <div class="panel panel-story">
         <div class="panel-title">What is my story?</div>
         <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
         <div id="story-flag" hidden></div>

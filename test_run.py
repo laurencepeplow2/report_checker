@@ -21,6 +21,7 @@ import csv
 import json
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -140,6 +141,50 @@ def main() -> None:
     log.info("Full log: %s", log_path)
 
 
+def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
+    """Deterministic checks shown in Review next to the AI flags - no API
+    calls. Sentence length runs against every prose paragraph in scope."""
+    from app.coded_checks import sentence_length_flag
+
+    sentence_rule = next(
+        (r for r in rules if r.coded and "sentence" in r.text.lower()
+         and "word" in r.text.lower()),
+        None,
+    )
+    if sentence_rule is None or not config.sentence_word_limits:
+        return []
+
+    rows = []
+    for chunk in sample:
+        if chunk.input_level != "paragraph" or chunk.kind == "table":
+            continue
+        if not sentence_rule.applies_to(chunk.input_level, parsed.document_type,
+                                        chunk.section):
+            continue
+        flag, detail = sentence_length_flag(chunk.text, config.sentence_word_limits)
+        rows.append({
+            "chunk_id": chunk.chunk_id,
+            "tab": chunk.tab_title,
+            "section": chunk.section,
+            "input_level": chunk.input_level,
+            "chunk_text": chunk.text,
+            "rule_id": sentence_rule.rule_id,
+            "category": "",
+            "rule": sentence_rule.text,
+            "example": sentence_rule.example,
+            "figure_type": "",
+            "severity": "coded",
+            "flag": flag,
+            "raw_response": detail,
+            "system_prompt": "",
+            "user_prompt": "",
+            "model": "coded",
+            "input_tokens": 0,
+            "output_tokens": 0,
+        })
+    return rows
+
+
 def run_for_doc(
     client: anthropic.Anthropic,
     config: StyleGuideConfig,
@@ -161,10 +206,12 @@ def run_for_doc(
              len(sample), config.max_pages or "all")
     system_prompt = build_system(severity, config)
 
-    # Work list: every applicable (chunk, rule) pair
+    # Work list: every applicable (chunk, AI rule) pair (coded rules are
+    # handled deterministically below, never sent to the AI)
+    ai_rules = [r for r in rules if not r.coded]
     work: list[tuple[Chunk, object]] = []
     for chunk in sample:
-        for rule in rules:
+        for rule in ai_rules:
             if rule.applies_to(chunk.input_level, parsed.document_type, chunk.section):
                 work.append((chunk, rule))
     log.info("%d checks to run (%s)", len(work),
@@ -217,6 +264,19 @@ def run_for_doc(
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
         })
+
+    # ---- coded checks (no AI): sentence length ------------------------
+    coded_rows = coded_check_rows(config, rules, parsed, sample)
+    rules_by_id = {r.rule_id: r for r in rules}
+    for row in coded_rows:
+        rows.append(row)
+        if row["flag"] in ("r", "a"):
+            breached_by_chunk.setdefault(row["chunk_id"], []).append(
+                rules_by_id[row["rule_id"]])
+    if coded_rows:
+        coded_flags = [r["flag"] for r in coded_rows]
+        log.info("Coded sentence-length check: %d paragraphs (r=%d a=%d)",
+                 len(coded_rows), coded_flags.count("r"), coded_flags.count("a"))
 
     # ---- second loop: rewrites for breached non-figure chunks ---------
     suggestions: dict[str, str] = {}
@@ -273,6 +333,8 @@ def run_for_doc(
             "tab_id": chunk.tab_id,
             "heading_id": chunk.heading_id,
             "text": chunk.text,
+            "kind": chunk.kind,
+            "formatted_text": chunk.formatted_text or chunk.text,
             "image": (chunk.figures[0].image_path if chunk.figures else None),
             "suggestion": suggestions.get(chunk.chunk_id, ""),
             "results": [],
@@ -293,6 +355,7 @@ def run_for_doc(
                 "severity": severity,
                 "mode": config.mode,
                 "model": model,
+                "run_date": datetime.now().strftime("%d/%m/%Y"),
                 "chunks": list(by_chunk.values()),
             },
             indent=2,

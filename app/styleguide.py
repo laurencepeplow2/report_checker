@@ -53,11 +53,31 @@ class StyleGuideConfig:
     max_pages: int = 0    # page cap for the run; 0 = whole document
     # document_type -> max allowed pages (config page_limit column)
     page_limits: dict[str, int] = field(default_factory=dict)
+    # tag -> max output tokens for that AI step (config max_token column)
+    step_max_tokens: dict[str, int] = field(default_factory=dict)
+    # flag letter -> sentence word limit (sentence_word_flag/_limit columns,
+    # e.g. {"a": 12, "r": 16}) for the coded sentence-length check
+    sentence_word_limits: dict[str, int] = field(default_factory=dict)
     raw: dict[str, list[str]] = field(default_factory=dict)
 
     def model_for(self, step: str) -> str:
         tag = STEP_TAGS.get(step.lower(), step.lower())
         return self.step_models.get(tag, "") or self.claude_model
+
+    def max_tokens_for(self, step: str, default: int, floor: int) -> int:
+        """Configured output-token cap for a step. A hard floor keeps runs
+        functional when the sheet value is too small for the response
+        format (e.g. truncated JSON or mid-sentence rewrites)."""
+        tag = STEP_TAGS.get(step.lower(), step.lower())
+        configured = self.step_max_tokens.get(tag, 0)
+        if not configured:
+            return default
+        if configured < floor:
+            logging.getLogger(__name__).warning(
+                "max_token %d for %s is below the working floor %d - using %d",
+                configured, tag, floor, floor)
+            return floor
+        return configured
 
     def prompt_override(self, name: str) -> str:
         """Instruction text for a tag (or any config column) from the sheet.
@@ -90,6 +110,7 @@ class Rule:
     input_level: str        # normalised chunk level: paragraph | figure | subsection
     example: str = ""       # "Example:" part - fed to the AI, hidden in the UI
     figure_type: str = ""   # header | sub_header | footer | whole_image | ""
+    coded: bool = False     # include_AI_check = coded: deterministic code check
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
 
@@ -152,10 +173,12 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     # name, model, and instruction text (literal "\n" unescaped).
     step_models: dict[str, str] = {}
     prompts: dict[str, str] = {}
+    step_max_tokens: dict[str, int] = {}
     if "tag" in headers:
         tag_idx = headers.index("tag")
         model_idx = headers.index("claude_model") if "claude_model" in headers else -1
         text_idx = headers.index("role") if "role" in headers else -1
+        tokens_idx = headers.index("max_token") if "max_token" in headers else -1
         for row in values[1:]:
             def cell(idx: int) -> str:
                 return row[idx].strip() if 0 <= idx < len(row) else ""
@@ -166,6 +189,8 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
                 step_models[tag] = cell(model_idx)
             if cell(text_idx):
                 prompts[tag] = cell(text_idx).replace("\\n", "\n")
+            if cell(tokens_idx).isdigit():
+                step_max_tokens[tag] = int(cell(tokens_idx))
 
     def first(key: str) -> str:
         return columns.get(key, [""])[0] if columns.get(key) else ""
@@ -180,6 +205,14 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         for doc_type, limit in zip(columns.get("document_type", []),
                                    columns.get("page_limit", []))
         if limit.isdigit()
+    }
+
+    # "Amber"/"Red" -> flag letters, paired with their word limits
+    sentence_word_limits = {
+        flag.strip().lower()[:1]: int(limit)
+        for flag, limit in zip(columns.get("sentence_word_flag", []),
+                               columns.get("sentence_word_limit", []))
+        if limit.isdigit() and flag.strip()
     }
 
     return StyleGuideConfig(
@@ -198,6 +231,8 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         mode=first("mode").lower(),
         max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
         page_limits=page_limits,
+        step_max_tokens=step_max_tokens,
+        sentence_word_limits=sentence_word_limits,
         raw=columns,
     )
 
@@ -244,17 +279,14 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
 
     rules: list[Rule] = []
     skipped: list[str] = []
-    coded = 0
     for row_num, row in enumerate(values[1:], start=2):
         def cell(idx: int) -> str:
             return row[idx].strip().lower() if idx < len(row) else ""
 
         include = cell(0)
-        if include in ("coded", "n/a", "na"):
-            coded += 1  # implemented as a deterministic code check
+        if include not in ("yes", "coded", "n/a", "na"):
             continue
-        if include != "yes":
-            continue
+        coded = include != "yes"
         raw = (row[1].strip() if len(row) > 1 else "")
         text, example = split_rule_example(raw)
         level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(2))
@@ -268,12 +300,14 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
             input_level=level,
             example=example,
             figure_type=cell(3).replace(" ", "_"),
+            coded=coded,
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))
     logger = logging.getLogger(__name__)
-    if coded:
-        logger.info("%d rule(s) marked coded - covered by deterministic checks", coded)
+    n_coded = sum(1 for r in rules if r.coded)
+    if n_coded:
+        logger.info("%d rule(s) marked coded - covered by deterministic checks", n_coded)
     if skipped:
         logger.warning("skipped %d malformed rule rows: %s", len(skipped), skipped)
     return rules

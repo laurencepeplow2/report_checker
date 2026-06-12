@@ -47,3 +47,26 @@ def update_index(doc_id: str, title: str, **fields) -> None:
 
 def list_reports() -> list[dict]:
     return _load_index()
+
+
+def load_edits(doc_id: str) -> dict:
+    """Committed edits per chunk: {chunk_id: {at, text}}. One edit per
+    paragraph - once committed, the chunk is locked."""
+    path = RUNS_DIR / doc_id / "edits.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def record_edit(doc_id: str, chunk_id: str, text: str) -> None:
+    edits = load_edits(doc_id)
+    edits[chunk_id] = {
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "text": text,
+    }
+    path = run_dir(doc_id) / "edits.json"
+    path.write_text(json.dumps(edits, indent=2, ensure_ascii=False),
+                    encoding="utf-8")

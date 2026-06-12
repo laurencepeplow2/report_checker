@@ -116,16 +116,17 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
 .health-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    "links layout words"
+    "story story  words";
   gap: 1rem;
   align-items: start;
 }
 
-.health-col {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-}
+.panel-links { grid-area: links; }
+.panel-layout { grid-area: layout; }
+.panel-words { grid-area: words; }
+.panel-story { grid-area: story; }
 
 .panel {
   background: var(--card);
@@ -204,11 +205,75 @@ del.diff-del {
 
 .reading { white-space: pre-wrap; line-height: 1.6; font-size: 0.94rem; }
 .reading img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
+.reading a { color: var(--accent); }
+.reading strong { font-weight: 700; }
 .reading .caption { margin-top: 0.5rem; }
 .reading.empty { color: var(--muted); font-style: italic; }
 
 #suggestion-panel { border-top: 4px solid var(--accent); }
 #copy-btn { margin-top: 0.9rem; }
+
+/* ---------- editor mode ---------- */
+
+#edit-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.editor-toolbar { display: flex; gap: 0.3rem; margin-bottom: 0.45rem; }
+.editor-toolbar button {
+  font: inherit;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  cursor: pointer;
+}
+.editor-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+
+.editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  min-height: 7rem;
+  background: #fffdfb;
+  outline: none;
+}
+.editor:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+.editor-actions { display: flex; gap: 0.6rem; margin-top: 0.7rem; }
+.editor-actions button {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+}
+.editor-actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.editor-actions button.primary:hover { background: var(--accent-dark); }
+.editor-actions button:disabled { opacity: 0.5; cursor: default; }
+
+.committed-badge {
+  margin-left: auto;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  background: #eaf3ec;
+  color: var(--green);
+  border: 1px solid #c2dcc9;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
 
 .card {
   border: 1px solid var(--line);
@@ -277,8 +342,16 @@ del.diff-del {
   box-shadow: var(--shadow);
   padding: 0.8rem 1.25rem;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.7rem;
+  white-space: nowrap;
+}
+.stat .bignum { line-height: 1; }
+.stat-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 0 0.6rem;
 }
 
 #stat-pages { white-space: nowrap; }
@@ -397,5 +470,10 @@ footer a { color: var(--accent); }
 #empty-state { padding: 2rem 1.6rem; }
 
 @media (max-width: 1000px) {
-  .review-grid, .health-grid { grid-template-columns: 1fr; }
+  .review-grid { grid-template-columns: 1fr; }
+  .health-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "links" "layout" "words" "story";
+  }
+  .stats-strip { flex-wrap: wrap; }
 }

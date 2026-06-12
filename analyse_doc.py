@@ -117,7 +117,9 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
             {
                 "doc_id": parsed.doc_id,
                 "title": parsed.title,
+                "document_type": parsed.document_type,
                 "approx_pages_excl_annex": pages_excl_annex,
+                "page_limit": config.page_limits.get(parsed.document_type, 0),
                 "links": links,
                 "word_frequency": words,
                 "story": headings,

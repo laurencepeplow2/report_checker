@@ -51,6 +51,8 @@ class StyleGuideConfig:
     cache: bool = False
     mode: str = ""        # run profile name, e.g. "main", "test_1"
     max_pages: int = 0    # page cap for the run; 0 = whole document
+    # document_type -> max allowed pages (config page_limit column)
+    page_limits: dict[str, int] = field(default_factory=dict)
     raw: dict[str, list[str]] = field(default_factory=dict)
 
     def model_for(self, step: str) -> str:
@@ -173,6 +175,13 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         columns.get("flag_instruction", []),
     ))
 
+    page_limits = {
+        doc_type: int(limit)
+        for doc_type, limit in zip(columns.get("document_type", []),
+                                   columns.get("page_limit", []))
+        if limit.isdigit()
+    }
+
     return StyleGuideConfig(
         claude_model=first("claude_model") or first("claude_model_selection"),
         check_severity=first("check_severity"),
@@ -188,6 +197,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         cache=first("cache").lower() == "yes",
         mode=first("mode").lower(),
         max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
+        page_limits=page_limits,
         raw=columns,
     )
 

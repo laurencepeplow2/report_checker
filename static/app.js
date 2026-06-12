@@ -319,7 +319,34 @@ function updateButtons() {
 
 function renderHealth(data) {
   if (data.approx_pages_excl_annex) {
-    el("stat-pages").textContent = String(data.approx_pages_excl_annex);
+    const pages = data.approx_pages_excl_annex;
+    const limit = data.page_limit || 0;
+    const num = el("stat-pages");
+    const flag = el("stat-pages-flag");
+    num.classList.remove("good", "amber", "bad");
+    flag.hidden = true;
+    if (limit) {
+      num.textContent = `${pages} / ${limit}`;
+      el("stat-pages-label").textContent =
+        `≈ pages, max for ${data.document_type || "this type"} (excl. annex)`;
+      const over = pages - limit;
+      if (over > 2) {
+        num.classList.add("bad");
+        flag.textContent = `${over} pages over the limit`;
+        flag.className = "limit-flag bad";
+        flag.hidden = false;
+      } else if (over > 0) {
+        num.classList.add("amber");
+        flag.textContent = `${over} page${over > 1 ? "s" : ""} over the limit`;
+        flag.className = "limit-flag amber";
+        flag.hidden = false;
+      } else {
+        num.classList.add("good");
+      }
+    } else {
+      num.textContent = String(pages);
+      el("stat-pages-label").textContent = "≈ pages (excl. annex)";
+    }
   }
   // Broken links (+ unverified ones that need a human click)
   const links = data.links || {};

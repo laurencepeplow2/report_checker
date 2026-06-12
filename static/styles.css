@@ -281,6 +281,19 @@ del.diff-del {
   gap: 0.7rem;
 }
 
+#stat-pages { white-space: nowrap; }
+#stat-pages-card .bignum { font-size: 1.9rem; }
+
+.limit-flag {
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  margin-left: auto;
+}
+.limit-flag.amber { background: var(--amber-bg); color: var(--amber); }
+.limit-flag.bad { background: var(--red-bg); color: var(--red); }
+
 .flag-dot {
   display: inline-block;
   width: 0.55rem;

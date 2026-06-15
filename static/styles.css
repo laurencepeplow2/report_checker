@@ -113,27 +113,22 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   align-items: start;
 }
 
+/* three independent columns: panels stack from the top within each column
+   with no cross-column row alignment, so a short panel doesn't leave a large
+   gap below it. Columns may end at different heights - that's fine. */
 .health-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-areas:
-    "flags pages  format"
-    "links layout words"
-    "story story  words";
+  display: flex;
   gap: 1rem;
-  align-items: start;
+  align-items: flex-start;
 }
-
-.panel-flags { grid-area: flags; }
-.panel-pages { grid-area: pages; }
-.panel-format { grid-area: format; }
-/* top row: each box sits at its natural height (top-aligned) so the stat
-   cards don't stretch to the taller format box and leave empty space */
-.panel-flags, .panel-pages { align-self: start; }
-.panel-links { grid-area: links; }
-.panel-layout { grid-area: layout; }
-.panel-words { grid-area: words; }
-.panel-story { grid-area: story; }
+.hcol {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.panel-story { margin-top: 1rem; }
 
 .panel {
   background: var(--card);
@@ -587,8 +582,5 @@ footer a { color: var(--accent); }
 
 @media (max-width: 1000px) {
   .review-grid { grid-template-columns: 1fr; }
-  .health-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas: "flags" "pages" "format" "links" "layout" "words" "story";
-  }
+  .health-grid { flex-direction: column; }
 }

@@ -21,6 +21,8 @@ let editMode = false;
 let editsByChunk = {};    // chunk_id -> {at, text}: committed (locked) edits
 let editorChunkId = null; // which chunk the editor is currently seeded with
 let hunks = [];           // tracked-changes between original and suggestion
+let editorDirty = false;  // true once the Final text box is hand-edited
+let showDiff = false;     // suggestion panel: clean text vs word diff
 
 /* ---------------- persistence for "checked" boxes ---------------- */
 
@@ -290,7 +292,7 @@ function renderChangeReview() {
     const flip = () => {
       h.state = h.state === "accept" ? "reject" : "accept";
       renderChangeReview();
-      reseedEditorFromHunks();
+      maybeReseed();
     };
     toggle.addEventListener("click", (e) => { e.stopPropagation(); flip(); });
     span.addEventListener("click", flip);
@@ -301,6 +303,86 @@ function renderChangeReview() {
   });
   const hasChanges = hunks.some((h) => h.type === "change");
   el("change-review-wrap").style.display = hasChanges ? "" : "none";
+}
+
+// Re-seed the Final text box from the accepted changes, but never silently
+// wipe manual formatting the reviewer has already applied.
+function maybeReseed() {
+  if (editorDirty && !window.confirm(
+      "Rebuild the final text from the accepted changes? "
+      + "Manual formatting will be lost.")) return;
+  reseedEditorFromHunks();
+  editorDirty = false;
+}
+
+// Wrap the first occurrence of `quote` inside the extract in a <mark>,
+// whitespace-flexible and case-insensitive, preserving inline formatting.
+function highlightInExtract(container, quote, flag) {
+  const q = (quote || "").trim();
+  if (!q) return;
+  const pattern = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  let re;
+  try { re = new RegExp(pattern, "i"); } catch { return; }
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    if (node.parentElement.closest("mark")) continue;
+    const m = re.exec(node.nodeValue);
+    if (!m) continue;
+    const before = node.nodeValue.slice(0, m.index);
+    const after = node.nodeValue.slice(m.index + m[0].length);
+    const mark = document.createElement("mark");
+    mark.className = `hl-${flag}`;
+    mark.textContent = m[0];
+    const frag = document.createDocumentFragment();
+    if (before) frag.appendChild(document.createTextNode(before));
+    frag.appendChild(mark);
+    if (after) frag.appendChild(document.createTextNode(after));
+    node.parentNode.replaceChild(frag, node);
+    return;
+  }
+}
+
+// Compact left rail: every flagged extract in the current filter, grouped
+// by section, with red/amber counts; click to jump.
+function renderNav() {
+  const nav = el("chunk-nav");
+  nav.innerHTML = "";
+  if (!view.length) {
+    nav.innerHTML = '<div class="nav-empty muted small">No flagged extracts.</div>';
+    return;
+  }
+  let lastTab = null;
+  let activeEl = null;
+  view.forEach((c, i) => {
+    if (c.tab !== lastTab) {
+      lastTab = c.tab;
+      const h = document.createElement("div");
+      h.className = "nav-section";
+      h.textContent = c.tab;
+      nav.appendChild(h);
+    }
+    const reds = c.breaches.filter((b) => b.flag === "r").length;
+    const ambers = c.breaches.filter((b) => b.flag === "a").length;
+    const worst = reds ? "r" : "a";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `nav-item flag-${worst}`
+      + (i === index ? " active" : "")
+      + (checked.has(c.chunk_id) ? " done" : "");
+    item.innerHTML = `<span class="nav-label"></span><span class="nav-counts"></span>`;
+    item.querySelector(".nav-label").textContent =
+      c.input_level === "figure" ? "▦ Figure" : (c.text || "").slice(0, 34);
+    const counts = [];
+    if (reds) counts.push(`<span class="nc r">${reds}</span>`);
+    if (ambers) counts.push(`<span class="nc a">${ambers}</span>`);
+    item.querySelector(".nav-counts").innerHTML = counts.join("");
+    item.addEventListener("click", () => { index = i; render(); });
+    nav.appendChild(item);
+    if (i === index) activeEl = item;
+  });
+  if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
 }
 
 function render() {
@@ -393,36 +475,57 @@ function render() {
   el("breach-count").textContent = String(sorted.length);
   el("breach-count").classList.toggle("none", sorted.length === 0);
 
+  // highlight the offending text (verifier / coded quote) inside the extract
+  if (!chunk.image) {
+    for (const result of sorted) {
+      if (result.quote) highlightInExtract(content, result.quote, result.flag);
+    }
+  }
+
   for (const result of sorted) {
     const card = document.createElement("div");
     card.className = `card flag-${result.flag}`;
+    if (result.verdict === "refuted") card.classList.add("refuted");
     card.innerHTML = `
       <span class="flag-chip">${result.flag}</span>
-      <div>
+      <div class="card-body">
         <div class="category"></div>
         <div class="rule-text"></div>
+        <div class="card-detail"></div>
       </div>`;
     const category = card.querySelector(".category");
     if (result.category) category.textContent = result.category;
     else category.remove();
     card.querySelector(".rule-text").textContent = result.rule;  // example excluded
+
+    const detailEl = card.querySelector(".card-detail");
+    const bits = [];
+    if (result.verdict === "confirmed") bits.push(`<span class="verdict ok">verified &#10003;</span>`);
+    else if (result.verdict === "refuted") bits.push(`<span class="verdict no">refuted</span>`);
+    if (result.detail) bits.push(`<span class="detail-note"></span>`);
+    if (bits.length) {
+      detailEl.innerHTML = bits.join(" ");
+      const note = detailEl.querySelector(".detail-note");
+      if (note) note.textContent = result.detail;
+    } else {
+      detailEl.remove();
+    }
     cards.appendChild(card);
   }
 
   const committed = editsByChunk[chunk.chunk_id];
   const editorArea = el("editor-area");
   const badge = el("committed-badge");
-  const diffNote = el("diff-note");
+  const diffToggle = el("diff-toggle");
   editorArea.hidden = true;
   badge.hidden = true;
-  diffNote.hidden = false;
+  diffToggle.hidden = true;
   suggestion.hidden = false;
 
   if (committed) {
     // one change per paragraph: locked after a commit
     badge.hidden = false;
     badge.title = `committed ${committed.at || ""}`;
-    diffNote.hidden = true;
     suggestion.classList.remove("empty");
     suggestion.textContent = committed.text;
   } else if (chunk.input_level === "figure") {
@@ -432,17 +535,21 @@ function render() {
   } else if (editMode && chunk.suggestion) {
     // live-edit mode: accept/reject changes, then format + commit
     suggestion.hidden = true;
-    diffNote.hidden = true;
     editorArea.hidden = false;
     if (editorChunkId !== chunk.chunk_id) {
       hunks = computeHunks(chunk.text, chunk.suggestion);
       editorChunkId = chunk.chunk_id;
+      editorDirty = false;
       renderChangeReview();
       reseedEditorFromHunks();
     }
   } else if (chunk.suggestion) {
+    // default to the clean rewritten text; "Show changes" reveals the diff
     suggestion.classList.remove("empty");
-    renderDiff(suggestion, chunk.text, chunk.suggestion);
+    diffToggle.hidden = false;
+    diffToggle.textContent = showDiff ? "Hide changes" : "Show changes";
+    if (showDiff) renderDiff(suggestion, chunk.text, chunk.suggestion);
+    else suggestion.textContent = chunk.suggestion;
     el("copy-btn").hidden = false;
   } else {
     suggestion.classList.add("empty");
@@ -450,6 +557,7 @@ function render() {
   }
 
   el("position").textContent = `${index + 1} / ${view.length}`;
+  renderNav();
   updateButtons();
 }
 
@@ -673,20 +781,27 @@ el("revert-btn").addEventListener("click", () => {
   if (!chunk) return;
   hunks = computeHunks(chunk.text, chunk.suggestion || "");
   renderChangeReview();
-  reseedEditorFromHunks();
+  reseedEditorFromHunks();   // explicit reset - discard manual edits
+  editorDirty = false;
 });
 
 el("accept-all-btn").addEventListener("click", () => {
   hunks.forEach((h) => { if (h.type === "change") h.state = "accept"; });
   renderChangeReview();
-  reseedEditorFromHunks();
+  maybeReseed();
 });
 
 el("reject-all-btn").addEventListener("click", () => {
   hunks.forEach((h) => { if (h.type === "change") h.state = "reject"; });
   renderChangeReview();
-  reseedEditorFromHunks();
+  maybeReseed();
 });
+
+// any manual typing / formatting marks the Final text as hand-edited so
+// later change-toggles don't silently wipe it
+el("suggestion-editor").addEventListener("input", () => { editorDirty = true; });
+
+el("diff-toggle").addEventListener("click", () => { showDiff = !showDiff; render(); });
 
 /* Walk the contenteditable DOM into style runs for the Docs API. */
 function collectRuns(node, style) {

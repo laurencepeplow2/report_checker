@@ -106,12 +106,70 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
 .toolbar button:disabled { opacity: 0.35; cursor: default; }
 .position { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.88rem; }
 
+.review-layout { display: flex; gap: 1rem; align-items: flex-start; }
+.review-layout .review-grid { flex: 1; min-width: 0; }
+
 .review-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
   align-items: start;
 }
+
+/* ---------- review sidebar ---------- */
+
+#chunk-nav {
+  flex: 0 0 13rem;
+  position: sticky;
+  top: 0.5rem;
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding-right: 0.2rem;
+}
+.nav-section {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0.6rem 0 0.15rem;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+  width: 100%;
+}
+.nav-item.flag-r { border-left-color: var(--red); }
+.nav-item.flag-a { border-left-color: var(--amber); }
+.nav-item:hover { background: var(--accent-soft); }
+.nav-item.active { border-color: var(--accent); background: var(--accent-soft); }
+.nav-item.done { opacity: 0.55; }
+.nav-item.done .nav-label { text-decoration: line-through; }
+.nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-counts { display: flex; gap: 0.2rem; flex: 0 0 auto; }
+.nav-counts .nc {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+}
+.nav-counts .nc.r { background: var(--red); }
+.nav-counts .nc.a { background: var(--amber); }
+.nav-empty { padding: 0.6rem 0.2rem; }
 
 .health-grid {
   display: grid;
@@ -205,6 +263,27 @@ del.diff-del {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* offending-text highlights inside the extract */
+.reading mark.hl-r { background: var(--red-bg); color: var(--red);
+  border-bottom: 2px solid var(--red); border-radius: 2px; padding: 0 0.05rem; }
+.reading mark.hl-a { background: var(--amber-bg); color: var(--amber);
+  border-bottom: 2px solid var(--amber); border-radius: 2px; padding: 0 0.05rem; }
+
+.mini-toggle {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.74rem;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+.mini-toggle:hover { border-color: var(--accent); color: var(--accent); }
 
 .reading { white-space: pre-wrap; line-height: 1.6; font-size: 0.94rem; }
 .reading img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
@@ -374,7 +453,16 @@ del.diff-del {
   color: var(--muted);
   margin-bottom: 0.18rem;
 }
+.card-body { min-width: 0; }
 .card .rule-text { font-size: 0.87rem; line-height: 1.45; }
+.card.refuted { opacity: 0.6; }
+.card.refuted .rule-text { text-decoration: line-through; }
+.card-detail { margin-top: 0.35rem; font-size: 0.76rem; display: flex;
+  flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.verdict { font-weight: 700; border-radius: 4px; padding: 0 0.35rem; }
+.verdict.ok { background: #eaf3ec; color: var(--green); }
+.verdict.no { background: var(--card); color: var(--muted); border: 1px solid var(--line); }
+.detail-note { color: var(--muted); }
 
 .all-clear {
   color: var(--green);
@@ -538,10 +626,12 @@ footer a { color: var(--accent); }
 #empty-state { padding: 2rem 1.6rem; }
 
 @media (max-width: 1000px) {
+  .review-layout { flex-direction: column; }
+  #chunk-nav { flex-basis: auto; width: 100%; position: static; max-height: 14rem;
+    flex-direction: row; flex-wrap: wrap; }
   .review-grid { grid-template-columns: 1fr; }
   .health-grid {
     grid-template-columns: 1fr;
-    grid-template-areas: "links" "layout" "words" "story";
+    grid-template-areas: "flags" "pages" "words" "links" "layout" "story";
   }
-  .stats-strip { flex-wrap: wrap; }
 }

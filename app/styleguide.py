@@ -49,6 +49,7 @@ class StyleGuideConfig:
     report_link: str = ""
     batching: bool = False
     cache: bool = False
+    verify: bool = True   # run the independent verification pass on flags
     mode: str = ""        # run profile name, e.g. "main", "test_1"
     max_pages: int = 0    # page cap for the run; 0 = whole document
     # document_type -> max allowed pages (config page_limit column)
@@ -228,6 +229,8 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         report_link=" ".join(columns.get("report_link", [])),
         batching=first("batching").lower() == "yes",
         cache=first("cache").lower() == "yes",
+        # verification defaults ON unless the config explicitly says "no"
+        verify=first("verify").lower() != "no",
         mode=first("mode").lower(),
         max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
         page_limits=page_limits,

@@ -46,6 +46,8 @@
       </div>
     </div>
 
+    <div class="review-layout">
+    <aside id="chunk-nav" aria-label="Flagged extracts"></aside>
     <div class="review-grid">
       <div class="panel" id="extract-panel">
         <div class="panel-title">Extract
@@ -63,9 +65,9 @@
 
       <div class="panel" id="suggestion-panel">
         <div class="panel-title">Suggested improvement
+          <button id="diff-toggle" class="mini-toggle" hidden>Show changes</button>
           <span id="committed-badge" class="committed-badge" hidden>Committed to doc &#10003;</span>
         </div>
-        <p class="muted small" id="diff-note">Changes vs the original are <ins class="diff-add">highlighted</ins>.</p>
         <div id="suggestion-content" class="reading"></div>
         <div id="editor-area" hidden>
           <div id="change-review-wrap">
@@ -99,6 +101,7 @@
         </div>
         <button id="copy-btn" hidden>Copy suggestion</button>
       </div>
+    </div>
     </div>
   </section>
 

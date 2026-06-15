@@ -29,8 +29,9 @@ from dotenv import load_dotenv
 
 from app.check_engine import (
     build_check_params, build_rewrite_params, build_system, build_user_text,
-    estimate_cost, parse_check_message, parse_rewrite_message, run_batch,
-    run_check, run_rewrite,
+    build_verify_params, estimate_cost, parse_check_message,
+    parse_rewrite_message, parse_verify_message, run_batch, run_check,
+    run_rewrite, run_verification,
 )
 from app.checks import post_run_checks, preflight
 from app.docs_parser import Chunk, parse_document
@@ -99,6 +100,15 @@ def select_chunks(chunks: list[Chunk], max_pages: int) -> list[Chunk]:
     ]
 
 
+def _quote_in_text(quote: str, text: str) -> bool:
+    """Whitespace-insensitive substring check, so a verifier quote only
+    drives a highlight when it is genuinely present in the extract."""
+    if not quote.strip():
+        return False
+    norm = lambda s: " ".join(s.split()).lower()
+    return norm(quote) in norm(text)
+
+
 def neighbour_context(chunks: list[Chunk], chunk: Chunk) -> tuple[str, str]:
     """Plain text of the paragraph before/after the chunk in the same tab."""
     paras = [c for c in chunks
@@ -161,7 +171,8 @@ def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
         if not sentence_rule.applies_to(chunk.input_level, parsed.document_type,
                                         chunk.section):
             continue
-        flag, detail = sentence_length_flag(chunk.text, config.sentence_word_limits)
+        flag, detail, sentence = sentence_length_flag(
+            chunk.text, config.sentence_word_limits)
         rows.append({
             "chunk_id": chunk.chunk_id,
             "tab": chunk.tab_title,
@@ -176,6 +187,11 @@ def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
             "severity": "coded",
             "flag": flag,
             "raw_response": detail,
+            # coded checks are deterministic - they self-verify, and the
+            # offending sentence is the highlight quote
+            "verdict": "confirmed" if flag in ("r", "a") else "",
+            "quote": sentence,
+            "detail": detail,
             "system_prompt": "",
             "user_prompt": "",
             "model": "coded",
@@ -258,6 +274,9 @@ def run_for_doc(
             "severity": severity,
             "flag": result.flag,
             "raw_response": result.raw_response,
+            "verdict": "",   # filled by the verification pass below
+            "quote": "",
+            "detail": "",
             "system_prompt": system_prompt,
             "user_prompt": build_user_text(rule, chunk),
             "model": model,
@@ -277,6 +296,41 @@ def run_for_doc(
         coded_flags = [r["flag"] for r in coded_rows]
         log.info("Coded sentence-length check: %d paragraphs (r=%d a=%d)",
                  len(coded_rows), coded_flags.count("r"), coded_flags.count("a"))
+
+    # ---- verification pass: independent confirm/refute + offending quote
+    if config.verify:
+        verify_model = config.model_for("verification")
+        verify_work = [(c, r) for (c, r) in work
+                       if results[(c.chunk_id, r.rule_id)].flag in ("r", "a")]
+        log.info("Verifying %d AI flags (%s)", len(verify_work),
+                 "batch" if config.batching else "serial")
+        verdicts: dict[tuple[str, str], object] = {}
+        if config.batching and verify_work:
+            req = {f"vf-{i}": build_verify_params(verify_model, r, c, config)
+                   for i, (c, r) in enumerate(verify_work)}
+            msgs = run_batch(client, req)
+            for i, (c, r) in enumerate(verify_work):
+                verdicts[(c.chunk_id, r.rule_id)] = parse_verify_message(msgs.get(f"vf-{i}"))
+        else:
+            for c, r in verify_work:
+                v = run_verification(client, verify_model, r, c, config)
+                verdicts[(c.chunk_id, r.rule_id)] = v
+                total_in += v.input_tokens
+                total_out += v.output_tokens
+        # attach to the AI rows, validating the quote is really in the text
+        text_by_chunk = {c.chunk_id: c.text for c in sample}
+        confirmed = refuted = 0
+        for row in rows:
+            v = verdicts.get((row["chunk_id"], row["rule_id"]))
+            if v is None:
+                continue
+            row["verdict"] = v.verdict
+            row["detail"] = v.note
+            row["quote"] = v.quote if _quote_in_text(
+                v.quote, text_by_chunk.get(row["chunk_id"], "")) else ""
+            confirmed += v.verdict == "confirmed"
+            refuted += v.verdict == "refuted"
+        log.info("Verification: %d confirmed, %d refuted", confirmed, refuted)
 
     # ---- second loop: rewrites for breached non-figure chunks ---------
     suggestions: dict[str, str] = {}
@@ -345,6 +399,9 @@ def run_for_doc(
             "category": row["category"],
             "rule": row["rule"],
             "flag": row["flag"],
+            "verdict": row.get("verdict", ""),
+            "quote": row.get("quote", ""),
+            "detail": row.get("detail", ""),
         })
     (out_dir / "test_run.json").write_text(
         json.dumps(

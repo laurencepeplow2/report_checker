@@ -1,22 +1,22 @@
 ﻿rule_id,category,rule,test_report (r),test_report (a)
-rule-002,,"Write chart titles as a finding that states the main message of the chart, not as a neutral description of the topic.",1,0
+rule-002,,"Write chart titles as a finding that states the main message of the chart, not as a neutral description of the topic.",0,0
 rule-003,,"Never label, caption or number charts, graphs or figures with ""Figure 1"", ""Figure 2"", etc.",0,0
 rule-004,,Always refer to each chart in the body text so it does not appear without context; do this by echoing the chart's title in the text.,1,0
 rule-006,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",1,1
-rule-007,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",0,2
-rule-008,,Do not put scenario descriptions or explanations in chart footers; incorporate them into the chart's legend or annotations instead.,0,1
+rule-007,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",1,1
+rule-008,,Do not put scenario descriptions or explanations in chart footers; incorporate them into the chart's legend or annotations instead.,1,0
 rule-009,,"Never write the organisation's full name ""Transport & Environment"" in any publication, including citations; always write ""T&E"".",0,0
 rule-010,,"Never write the organisation's full name ""Transport & Environment"" in any publication, including citations; always write ""T&E"".",0,0
 rule-013,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,1,5
-rule-014,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,1,6
-rule-015,,"Write persuasively but not shouty: avoid superlatives, emotional language and hyperbole, and rely on objective, clear text.",4,11
-rule-016,,"Write in the active voice rather than the passive voice, unless the active phrasing is awkward.",3,6
+rule-014,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,1,5
+rule-015,,"Write persuasively but not shouty: avoid superlatives, emotional language and hyperbole, and rely on objective, clear text.",2,17
+rule-016,,"Write in the active voice rather than the passive voice, unless the active phrasing is awkward.",3,8
 rule-018,,"After a long sentence that explains or elaborates an idea, follow it with a short sentence to aid readability.",1,13
 rule-019,,"After a long sentence that explains or elaborates an idea, follow it with a short sentence to aid readability.",1,15
 rule-020,,Keep sentences short: ideally less than 13 words and definitely less than 17 words.,31,1
-rule-021,,Use the present simple tense by default in all publication types.,4,10
+rule-021,,Use the present simple tense by default in all publication types.,7,7
 rule-030,,Express one idea per sentence.,20,13
-rule-031,,Express one idea per sentence.,18,14
-rule-032,,Cover one theme per paragraph.,8,6
+rule-031,,Express one idea per sentence.,22,12
+rule-032,,Cover one theme per paragraph.,9,7
 rule-033,,"Do not use bold text or underlining for emphasis (especially not combined); use bullet points or reserved space on the page instead. Bold may be used very sparingly and never for whole sentences - if a whole sentence deserves bold, it should be a (sub)section title.",1,0
-rule-049,,"Write chemical compounds with subscripts and chemical elements with their periodic-table symbols, and put a space between a unit and a compound.",0,6
+rule-049,,"Write chemical compounds with subscripts and chemical elements with their periodic-table symbols, and put a space between a unit and a compound.",5,2

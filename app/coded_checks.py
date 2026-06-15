@@ -9,12 +9,13 @@ import re
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def sentence_length_flag(text: str, limits: dict[str, int]) -> tuple[str, str]:
+def sentence_length_flag(text: str, limits: dict[str, int]) -> tuple[str, str, str]:
     """Flag a paragraph by its longest sentence.
 
     limits maps flag letters to word limits, e.g. {"a": 12, "r": 16}:
     any sentence over the red limit -> "r", over amber -> "a", else "g".
-    Returns (flag, detail) where detail names the longest sentence.
+    Returns (flag, detail, sentence) - detail is a human note, sentence is
+    the verbatim longest sentence (for highlighting in the extract).
     """
     amber = limits.get("a", 0)
     red = limits.get("r", 0)
@@ -31,7 +32,6 @@ def sentence_length_flag(text: str, limits: dict[str, int]) -> tuple[str, str]:
     elif amber and longest_words > amber:
         flag = "a"
     else:
-        return "g", f"longest sentence {longest_words} words"
-    snippet = longest_sentence[:140] + ("..." if len(longest_sentence) > 140 else "")
-    return flag, (f"{longest_words}-word sentence (amber > {amber}, "
-                  f"red > {red}): \"{snippet}\"")
+        return "g", f"longest sentence {longest_words} words", ""
+    detail = (f"{longest_words}-word sentence (amber > {amber}, red > {red})")
+    return flag, detail, longest_sentence

@@ -474,6 +474,78 @@ def parse_rewrite_message(message) -> RewriteResult:
                          message.usage.output_tokens)
 
 
+# ---- verification pass: independent confirm/refute + offending quote -----
+
+VERIFY_INSTRUCTION = (
+    "You are independently double-checking a style flag raised on an "
+    "extract. Given one rule and the extract, decide whether the extract "
+    "genuinely breaches that rule. Be fair, but do not invent violations. "
+    "If it genuinely breaches the rule, copy the exact verbatim span from "
+    "the extract that breaches it - word for word, no paraphrase. Respond "
+    "with: verdict 'confirmed' (a real breach) or 'refuted' (not actually a "
+    "breach); quote (the verbatim offending text, or empty when refuted); "
+    "and a note of at most twelve words explaining the decision."
+)
+
+VERIFY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["confirmed", "refuted"]},
+        "quote": {"type": "string"},
+        "note": {"type": "string"},
+    },
+    "required": ["verdict", "quote", "note"],
+    "additionalProperties": False,
+}
+
+
+@dataclass
+class VerifyResult:
+    verdict: str
+    quote: str
+    note: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+def build_verify_params(model: str, rule: Rule, chunk: Chunk,
+                        config: StyleGuideConfig | None = None) -> dict:
+    role = (config.role_context if config else "") or ROLE_CONTEXT
+    instruction = _override(config, "verification_instruction", VERIFY_INSTRUCTION)
+    user = f"Rule:\n{rule.text}\n\nExtract:\n{_chunk_body(chunk)}"
+    return {
+        "model": model,
+        "max_tokens": (config.max_tokens_for("verification", 400, 200)
+                       if config else 400),
+        "system": _system_blocks(f"{role}\n\n{instruction}", config),
+        "messages": [{"role": "user", "content": user}],
+        "output_config": {"format": {"type": "json_schema", "schema": VERIFY_SCHEMA}},
+    }
+
+
+def _parse_verify(response) -> VerifyResult:
+    import json as _json
+    text = next(b.text for b in response.content if b.type == "text")
+    data = _json.loads(text)
+    return VerifyResult(
+        data.get("verdict", "confirmed"), data.get("quote", ""),
+        data.get("note", ""), response.usage.input_tokens,
+        response.usage.output_tokens,
+    )
+
+
+def run_verification(client: anthropic.Anthropic, model: str, rule: Rule,
+                     chunk: Chunk, config: StyleGuideConfig | None = None) -> VerifyResult:
+    return _parse_verify(client.messages.create(
+        **build_verify_params(model, rule, chunk, config)))
+
+
+def parse_verify_message(message) -> VerifyResult:
+    if message is None:
+        return VerifyResult("confirmed", "", "(verification unavailable)")
+    return _parse_verify(message)
+
+
 def run_word_flagging(
     client: anthropic.Anthropic,
     model: str,

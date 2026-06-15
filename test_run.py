@@ -176,7 +176,9 @@ def main() -> None:
              config.max_pages or "all", len(rules),
              config.batching, config.cache)
 
-    client = anthropic.Anthropic()
+    # extra retries so a transient 5xx/timeout doesn't abort a long run; any
+    # call that still fails is skipped per-item in the loops below
+    client = anthropic.Anthropic(max_retries=5)
     for doc_id in doc_ids:
         run_for_doc(client, config, rules, doc_id, severity)
     log.info("Full log: %s", log_path)
@@ -333,7 +335,12 @@ def run_for_doc(
                 parse_check_message(messages.get(f"chk-{i}"))
     elif work:
         for done, (chunk, rule) in enumerate(work, start=1):
-            res = run_check(client, model, severity, rule, chunk, config)
+            try:
+                res = run_check(client, model, severity, rule, chunk, config)
+            except anthropic.APIError as exc:
+                log.warning("  %s x %s -> API error (%s); skipping this check",
+                            chunk.chunk_id, rule.rule_id, type(exc).__name__)
+                continue
             results[(chunk.chunk_id, rule.rule_id)] = res
             spent_usd += cost_for(model, res.input_tokens, res.output_tokens)
             log.info("  %s x %s -> %s", chunk.chunk_id, rule.rule_id, res.flag)
@@ -421,8 +428,13 @@ def run_for_doc(
                 verdicts[(c.chunk_id, r.rule_id)] = parse_verify_message(msgs.get(f"vf-{i}"))
         else:
             for c, r in verify_work:
-                verdicts[(c.chunk_id, r.rule_id)] = \
-                    run_verification(client, verify_model, r, c, config)
+                try:
+                    verdicts[(c.chunk_id, r.rule_id)] = \
+                        run_verification(client, verify_model, r, c, config)
+                except anthropic.APIError as exc:
+                    log.warning("  verify %s x %s -> API error (%s); leaving "
+                                "unverified", c.chunk_id, r.rule_id,
+                                type(exc).__name__)
         # attach to the AI rows, validating the quote is really in the text
         text_by_chunk = {c.chunk_id: c.text for c in sample}
         confirmed = refuted = 0
@@ -469,8 +481,14 @@ def run_for_doc(
     else:
         for chunk, breached in rewrite_work:
             before, after = neighbour_context(sample, chunk)
-            rewrite = run_rewrite(client, rewrite_model, breached, chunk, config,
-                                  context_before=before, context_after=after)
+            try:
+                rewrite = run_rewrite(client, rewrite_model, breached, chunk,
+                                      config, context_before=before,
+                                      context_after=after)
+            except anthropic.APIError as exc:
+                log.warning("  rewrite %s -> API error (%s); skipping",
+                            chunk.chunk_id, type(exc).__name__)
+                continue
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
             tok["rewrite"][0] += rewrite.input_tokens

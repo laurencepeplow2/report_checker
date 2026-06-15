@@ -295,6 +295,18 @@ def parse_document(
         elif chunk.input_level == "figure":
             chars += FIGURE_CHAR_EQUIVALENT
 
+    # Approximate page per link: the page of the paragraph chunk (same tab)
+    # whose text contains the link's anchor text. Links are collected during
+    # parsing, before pages exist, so this is a cheap post-pass.
+    para_chunks = [c for c in chunks if c.input_level == "paragraph"]
+    for link in links:
+        anchor = link.get("text", "").strip()
+        link["page"] = next(
+            (c.approx_page for c in para_chunks
+             if c.tab_title == link["tab"] and anchor and anchor in c.text),
+            0,
+        )
+
     return ParsedDocument(
         doc_id=doc_id,
         title=doc.get("title", ""),

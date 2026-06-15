@@ -127,8 +127,9 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
 .panel-flags { grid-area: flags; }
 .panel-pages { grid-area: pages; }
 .panel-format { grid-area: format; }
-/* the top stat cards + format box share a row - keep them the same height */
-.panel-flags, .panel-pages { align-self: stretch; }
+/* top row: each box sits at its natural height (top-aligned) so the stat
+   cards don't stretch to the taller format box and leave empty space */
+.panel-flags, .panel-pages { align-self: start; }
 .panel-links { grid-area: links; }
 .panel-layout { grid-area: layout; }
 .panel-words { grid-area: words; }
@@ -138,7 +139,7 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 1.1rem 1.25rem;
+  padding: 0.85rem 1.1rem;
   box-shadow: var(--shadow);
 }
 
@@ -148,7 +149,7 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.55rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;

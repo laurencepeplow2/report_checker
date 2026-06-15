@@ -387,7 +387,7 @@ function render() {
   box.checked = checked.has(chunk.chunk_id);
   el("extract-panel").classList.toggle("is-checked", box.checked);
 
-  for (const text of [chunk.tab, chunk.section, chunk.input_level]) {
+  for (const text of [chunk.tab, chunk.input_level]) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = text;
@@ -575,8 +575,10 @@ function renderHealth(data) {
     const a = row.querySelector("a");
     a.href = link.url;
     a.textContent = link.url;
+    const pageStr = (link.pages && link.pages.length)
+      ? ` - ≈ p.${link.pages.join(", ")}` : "";
     row.querySelector(".where").textContent =
-      `link text: "${link.text}" - in: ${link.tabs.join(", ")}` +
+      `link text: "${link.text}" - in: ${link.tabs.join(", ")}${pageStr}` +
       (link.note ? ` - ${link.note}` : "");
     list.appendChild(row);
   }

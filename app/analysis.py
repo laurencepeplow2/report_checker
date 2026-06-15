@@ -125,6 +125,7 @@ def check_links(parsed: ParsedDocument) -> dict:
             "count": len(occurrences),
             "text": occurrences[0]["text"],
             "tabs": sorted({o["tab"] for o in occurrences}),
+            "pages": sorted({o["page"] for o in occurrences if o.get("page")}),
         })
     results.sort(key=lambda r: (state_rank[r["state"]], r["url"]))
     return {

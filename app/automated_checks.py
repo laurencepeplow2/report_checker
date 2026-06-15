@@ -165,6 +165,28 @@ def build_checks(doc_id: str, config=None) -> list[tuple[str, str, str]]:
     out.append(("Page count computed", _verdict(bool(pages)),
                 f"~{pages} pages (excl. annex)" if pages else "not computed"))
 
+    # A stage that simply hasn't run yet is WARN ("not run yet"), not FAIL -
+    # so FAIL always means something actually broke. (When only one of
+    # test_run / analyse_doc has run for a doc, the other's checks are WARN.)
+    TR_STEPS = {"Document parsed", "Document type recognised", "Sections detected",
+                "Paragraphs found", "Figures detected", "AI checks executed",
+                "All AI responses valid", "Flags look sane", "Verification pass ran",
+                "Rewrites generated", "Run cost logged", "Cost within cap"}
+    AN_STEPS = {"Health analysis present", "Links checked", "Common words computed",
+                "Sentence distribution computed", "Story arc built",
+                "Story verdict (AI) produced", "Per-title message flags produced",
+                "Page count computed"}
+
+    def _mark_not_run(names: set[str], msg: str) -> None:
+        for i, (name, _lvl, _detail) in enumerate(out):
+            if name in names:
+                out[i] = (name, WARN, msg)
+
+    if tr is None:
+        _mark_not_run(TR_STEPS, "test_run not run yet")
+    if an is None:
+        _mark_not_run(AN_STEPS, "analyse_doc not run yet")
+
     return out[:20]
 
 

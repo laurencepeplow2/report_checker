@@ -42,6 +42,68 @@ def cost_for(model: str, input_tokens: int, output_tokens: int) -> float:
                   if (model or "").startswith(prefix)), PRICE_PER_MTOK)
     return (input_tokens * price["input"] + output_tokens * price["output"]) / 1_000_000
 
+
+# The cost cap (config max_report_cost_eur) is in EUR; the price tables are
+# in USD. One rough rate, applied both ways. Update if it drifts materially.
+EUR_TO_USD = 1.08
+
+
+def usd_to_eur(usd: float) -> float:
+    return usd / EUR_TO_USD
+
+
+def eur_to_usd(eur: float) -> float:
+    return eur * EUR_TO_USD
+
+
+# Pre-run estimate assumptions. These only decide whether to start / continue
+# a run against the cap - the billed amount always comes from the usage each
+# call actually returns, never from these.
+_EST_CHARS_PER_TOKEN = 4     # rough chars-per-token for prompt text
+_EST_FLAG_OUT = 4            # a flag reply is a single letter
+_EST_FIGURE_IMG_TOK = 1600   # flat allowance for a figure's inline image
+_EST_VERIFY_OUT = 90         # confirm/refute + a short quote
+_EST_VERIFY_EXTRA_IN = 120   # verification instruction on top of the extract
+_EST_BREACH_RATE = 0.30      # share of checks assumed to flag r/a (-> verified)
+_EST_REWRITE_RATE = 0.25     # share of chunks assumed to need a rewrite
+_EST_REWRITE_EXTRA_IN = 300  # neighbour context added to a rewrite prompt
+_EST_REWRITE_OUT = 250       # a rewritten paragraph
+
+
+def estimate_run_cost(work, system_prompt, config, flag_model,
+                      verify_model, rewrite_model) -> dict:
+    """Ballpark USD cost of a run *before* any API call, from the work list
+    (chunk, rule pairs) and assumed breach / rewrite rates. Deliberately
+    rough: it exists to catch runs that are clearly too big for the cost cap,
+    not to predict the bill to the cent."""
+    if not work:
+        return {"flag": 0.0, "verify": 0.0, "rewrite": 0.0, "total": 0.0}
+
+    sys_tok = len(system_prompt) // _EST_CHARS_PER_TOKEN
+    flag_in = flag_out = 0
+    for chunk, rule in work:
+        user_tok = len(build_user_text(rule, chunk)) // _EST_CHARS_PER_TOKEN
+        img_tok = _EST_FIGURE_IMG_TOK if chunk.input_level == "figure" else 0
+        flag_in += sys_tok + user_tok + img_tok
+        flag_out += _EST_FLAG_OUT
+    cost_flag = cost_for(flag_model, flag_in, flag_out)
+
+    avg_in = flag_in / len(work)
+    n_breach = int(len(work) * _EST_BREACH_RATE)
+    cost_verify = 0.0
+    if config and config.verify:
+        verify_in = int(n_breach * (avg_in + _EST_VERIFY_EXTRA_IN))
+        cost_verify = cost_for(verify_model, verify_in, n_breach * _EST_VERIFY_OUT)
+
+    n_chunks = len({c.chunk_id for c, _ in work})
+    n_rewrite = int(n_chunks * _EST_REWRITE_RATE)
+    rewrite_in = int(n_rewrite * (avg_in + _EST_REWRITE_EXTRA_IN))
+    cost_rewrite = cost_for(rewrite_model, rewrite_in, n_rewrite * _EST_REWRITE_OUT)
+
+    total = cost_flag + cost_verify + cost_rewrite
+    return {"flag": cost_flag, "verify": cost_verify,
+            "rewrite": cost_rewrite, "total": total}
+
 # ---- prompt building blocks (destined for the config tab) ----------------
 
 ROLE_CONTEXT = (

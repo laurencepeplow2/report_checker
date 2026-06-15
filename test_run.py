@@ -29,9 +29,9 @@ from dotenv import load_dotenv
 
 from app.check_engine import (
     build_check_params, build_rewrite_params, build_system, build_user_text,
-    build_verify_params, cost_for, estimate_cost, parse_check_message,
-    parse_rewrite_message, parse_verify_message, run_batch, run_check,
-    run_rewrite, run_verification,
+    build_verify_params, cost_for, estimate_cost, estimate_run_cost,
+    parse_check_message, parse_rewrite_message, parse_verify_message,
+    run_batch, run_check, run_rewrite, run_verification, usd_to_eur,
 )
 from app.checks import post_run_checks, preflight
 from app.docs_parser import Chunk, parse_document
@@ -293,12 +293,36 @@ def run_for_doc(
     log.info("%d checks to run (%s)", len(work),
              "Batches API, 50%% token cost" if config.batching else "serial")
 
+    # ---- cost guard: estimate before spending, cap while spending ------
+    verify_model = config.model_for("verification")
+    cap_eur = config.max_report_cost_eur
+    est = estimate_run_cost(work, system_prompt, config, model, verify_model,
+                            rewrite_model)
+    log.info("Estimated run cost ~$%.2f (~EUR %.2f) [flag $%.2f, verify $%.2f, "
+             "rewrite $%.2f]%s", est["total"], usd_to_eur(est["total"]),
+             est["flag"], est["verify"], est["rewrite"],
+             f" | cap EUR {cap_eur}" if cap_eur else " | no cap")
+
+    skip_ai = bool(cap_eur) and usd_to_eur(est["total"]) > cap_eur
+    if skip_ai:
+        log.warning("Estimated EUR %.2f exceeds the cap of EUR %d - skipping "
+                    "ALL AI checks; coded checks only.",
+                    usd_to_eur(est["total"]), cap_eur)
+        work = []   # nothing goes to the AI; coded checks below still run
+
     # ---- first loop: flag checks --------------------------------------
     results: dict[tuple[str, str], object] = {}
     total_in = total_out = 0
     # per-step tokens for the cost log: [input, output]
     tok = {"flag": [0, 0], "verify": [0, 0], "rewrite": [0, 0]}
-    if config.batching:
+    spent_usd = 0.0
+    stopped_early = False
+
+    def over_cap() -> bool:
+        return bool(cap_eur) and usd_to_eur(spent_usd) >= cap_eur
+
+    if config.batching and work:
+        # one batch - can't stop mid-flight, so the estimate is the guard here
         request_params = {
             f"chk-{i}": build_check_params(model, severity, rule, chunk, config)
             for i, (chunk, rule) in enumerate(work)
@@ -307,12 +331,23 @@ def run_for_doc(
         for i, (chunk, rule) in enumerate(work):
             results[(chunk.chunk_id, rule.rule_id)] = \
                 parse_check_message(messages.get(f"chk-{i}"))
-    else:
-        for chunk, rule in work:
-            results[(chunk.chunk_id, rule.rule_id)] = \
-                run_check(client, model, severity, rule, chunk, config)
-            log.info("  %s x %s -> %s", chunk.chunk_id, rule.rule_id,
-                     results[(chunk.chunk_id, rule.rule_id)].flag)
+    elif work:
+        for done, (chunk, rule) in enumerate(work, start=1):
+            res = run_check(client, model, severity, rule, chunk, config)
+            results[(chunk.chunk_id, rule.rule_id)] = res
+            spent_usd += cost_for(model, res.input_tokens, res.output_tokens)
+            log.info("  %s x %s -> %s", chunk.chunk_id, rule.rule_id, res.flag)
+            if over_cap():
+                stopped_early = True
+                log.warning("Hit cost cap EUR %d (spent ~EUR %.2f) - stopping "
+                            "AI after %d/%d flag checks; writing partial "
+                            "results.", cap_eur, usd_to_eur(spent_usd),
+                            done, len(work))
+                break
+    # only the (chunk, rule) pairs that actually got a flag carry downstream
+    work = [(c, r) for (c, r) in work if (c.chunk_id, r.rule_id) in results]
+    # once the cap is hit (or AI was skipped), no further AI spend is allowed
+    ai_budget_left = not skip_ai and not stopped_early
 
     rows = []
     breached_by_chunk: dict[str, list] = {}
@@ -348,6 +383,16 @@ def run_for_doc(
             "output_tokens": result.output_tokens,
         })
 
+    # In batch mode the flag batch runs in one shot, so the cap is checked
+    # between stages: if the flags alone already reached it, skip verify/rewrite.
+    if config.batching and ai_budget_left:
+        spent_usd = cost_for(model, tok["flag"][0], tok["flag"][1])
+        if over_cap():
+            ai_budget_left = False
+            log.warning("Flag batch already cost ~EUR %.2f (cap EUR %d) - "
+                        "skipping verify and rewrite.",
+                        usd_to_eur(spent_usd), cap_eur)
+
     # ---- coded checks (no AI): sentence length ------------------------
     coded_rows = coded_check_rows(config, rules, parsed, sample)
     rules_by_id = {r.rule_id: r for r in rules}
@@ -362,8 +407,7 @@ def run_for_doc(
                  len(coded_rows), coded_flags.count("r"), coded_flags.count("a"))
 
     # ---- verification pass: independent confirm/refute + offending quote
-    if config.verify:
-        verify_model = config.model_for("verification")
+    if config.verify and ai_budget_left:
         verify_work = [(c, r) for (c, r) in work
                        if results[(c.chunk_id, r.rule_id)].flag in ("r", "a")]
         log.info("Verifying %d AI flags (%s)", len(verify_work),
@@ -399,12 +443,13 @@ def run_for_doc(
         log.info("Verification: %d confirmed, %d refuted", confirmed, refuted)
 
     # ---- second loop: rewrites for breached non-figure chunks ---------
+    # (an AI call, so skipped once the cost cap is reached / AI was skipped)
     suggestions: dict[str, str] = {}
     rewrite_work = [
         (chunk, breached_by_chunk[chunk.chunk_id])
         for chunk in sample
         if chunk.chunk_id in breached_by_chunk and chunk.input_level != "figure"
-    ]
+    ] if ai_budget_left else []
     log.info("%d chunks need rewrites", len(rewrite_work))
     if config.batching and rewrite_work:
         request_params = {}
@@ -439,8 +484,12 @@ def run_for_doc(
 
     out_dir = run_dir(doc_id)
     out_path = out_dir / "test_run.csv"
+    if not rows:
+        log.warning("No rows produced (AI skipped and no coded breaches) - "
+                    "writing an empty test_run.csv.")
+    fieldnames = list(rows[0].keys()) if rows else ["chunk_id", "rule_id", "flag"]
     with out_path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 

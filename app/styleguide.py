@@ -55,6 +55,10 @@ class StyleGuideConfig:
     verify: bool = True   # run the independent verification pass on flags
     mode: str = ""        # run profile name, e.g. "main", "test_1"
     max_pages: int = 0    # page cap for the run; 0 = whole document
+    # hard EUR ceiling for one run (config max_report_cost_eur); 0 = no cap.
+    # If the pre-run estimate exceeds it, no AI calls are made; if a live run
+    # reaches it, the run stops gracefully and writes what it has so far.
+    max_report_cost_eur: int = 0
     # document_type -> max allowed pages (config page_limit column)
     page_limits: dict[str, int] = field(default_factory=dict)
     # tag -> max output tokens for that AI step (config max_token column)
@@ -161,7 +165,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{CONFIG_TAB}'!A1:Z100"
+        spreadsheetId=sheet_id, range=f"'{CONFIG_TAB}'!A1:AZ100"
     ).execute().get("values", [])
     if not values:
         raise RuntimeError(f"'{CONFIG_TAB}' tab is empty or missing.")
@@ -237,6 +241,8 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         verify=first("verify").lower() != "no",
         mode=first("mode").lower(),
         max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
+        max_report_cost_eur=(int(first("max_report_cost_eur"))
+                             if first("max_report_cost_eur").isdigit() else 0),
         page_limits=page_limits,
         step_max_tokens=step_max_tokens,
         sentence_word_limits=sentence_word_limits,

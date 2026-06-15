@@ -88,7 +88,8 @@ the pipeline runs on Windows.
   word-flag, story-flag, message-flag, verification, plus the rewrite context
   blocks); `report_link` (one or several Google Doc links); `batching`,
   `cache`, `verify` (yes/no); `mode` + `max_pages`; `sentence_word_flag` +
-  `sentence_word_limit`.
+  `sentence_word_limit`; `max_report_cost_eur` (integer EUR cost cap, 0 = no
+  cap).
 - **TE_style_rules tab** — one rule per row: `include_AI_check`
   (`yes` = AI-checked, `no` = off, `coded` = deterministic code check),
   the rule as `Rule: … Example: …`, its `level`, an optional `figure_type`
@@ -109,6 +110,15 @@ the pipeline runs on Windows.
   verification pass on each flag, and rewrites breached paragraphs. With
   `batching = yes` both loops go through the Message Batches API (50% token
   cost); `cache = yes` caches the system prompts.
+- **Cost cap (`max_report_cost_eur`).** Before any API call the run prints an
+  estimate (flag + verify + rewrite, in USD and EUR). If the estimate exceeds
+  the cap, the run skips **all** AI steps and produces coded checks only. If a
+  live (serial) run reaches the cap mid-way, it stops after the current flag
+  check and writes the partial results — no verify or rewrite spend beyond the
+  cap. In batch mode the estimate is the guard (a batch can't be stopped
+  mid-flight), with a second check between the flag and verify/rewrite stages.
+  The cap is in EUR; prices are USD, converted at a fixed rate in
+  `check_engine.EUR_TO_USD`.
 - Outputs land per report in `data/runs/<doc_id>/` (`test_run.csv/json`,
   `analysis.json`), indexed in `data/runs/index.json`; the UI shows a report
   selector when more than one exists. `flag_history.csv` accumulates per-rule

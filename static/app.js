@@ -116,17 +116,21 @@ async function loadReport(doc) {
     .map((c) => ({ ...c, breaches: c.results.filter(isLiveBreach) }))
     .filter((c) => c.breaches.length > 0);
 
-  // Section toggle: report tabs in document order (rebuilt per report)
+  // Section filter: the canonical sections (cover / executive summary /
+  // main text / recommendations / annex / foreward) present among the
+  // flagged chunks, in document order. Works for both tab-per-section and
+  // single-tab docs (where one tab would otherwise be the only option).
   const sectionSelect = el("section-select");
   while (sectionSelect.options.length > 1) sectionSelect.remove(1);
   sectionSelect.value = "all";
+  const titleCase = (s) => s.replace(/\b\w/g, (m) => m.toUpperCase());
   const seen = new Set();
-  for (const c of runData.chunks) {
-    if (!seen.has(c.tab)) {
-      seen.add(c.tab);
+  for (const c of allChunks) {
+    if (c.section && !seen.has(c.section)) {
+      seen.add(c.section);
       const opt = document.createElement("option");
-      opt.value = c.tab;
-      opt.textContent = c.tab;
+      opt.value = c.section;
+      opt.textContent = titleCase(c.section);
       sectionSelect.appendChild(opt);
     }
   }
@@ -158,7 +162,7 @@ function applyFilter() {
   const section = el("section-select").value;
   view = allChunks.filter((c) =>
     (level === "all" || c.input_level === level) &&
-    (section === "all" || c.tab === section)
+    (section === "all" || c.section === section)
   );
   index = 0;
   render();

@@ -68,6 +68,21 @@
         <p class="muted small" id="diff-note">Changes vs the original are <ins class="diff-add">highlighted</ins>.</p>
         <div id="suggestion-content" class="reading"></div>
         <div id="editor-area" hidden>
+          <div id="change-review-wrap">
+            <div class="cr-head">
+              <span class="cr-label">Review changes</span>
+              <span class="cr-actions">
+                <button type="button" id="accept-all-btn">Accept all</button>
+                <button type="button" id="reject-all-btn">Reject all</button>
+              </span>
+            </div>
+            <p class="muted small">Click each change to accept or reject it &mdash;
+              <ins class="diff-add">green</ins> is the proposed wording,
+              <del class="diff-del">struck</del> is the original.</p>
+            <div id="change-review" class="reading"></div>
+          </div>
+
+          <div class="cr-label">Final text <span class="muted small">(format here, then commit)</span></div>
           <div class="editor-toolbar">
             <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
             <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
@@ -89,19 +104,25 @@
 
   <!-- ===================== HEALTH ===================== -->
   <section id="view-health" class="view" hidden>
-    <div class="stats-strip">
-      <div class="stat stat-flags">
+    <div class="health-grid">
+      <div class="stat panel-flags">
         <span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span>
         <span class="stat-divider"></span>
         <span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span>
       </div>
-      <div class="stat" id="stat-pages-card">
+
+      <div class="stat panel-pages" id="stat-pages-card">
         <span id="stat-pages" class="bignum">–</span>
         <span class="muted" id="stat-pages-label">&asymp; pages (excl. annex)</span>
         <span id="stat-pages-flag" class="limit-flag" hidden></span>
       </div>
-    </div>
-    <div class="health-grid">
+
+      <div class="panel panel-words">
+        <div class="panel-title">Common words</div>
+        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed. <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
+        <div id="word-bars"></div>
+      </div>
+
       <div class="panel panel-links">
         <div class="panel-title">Broken links</div>
         <div class="bignum-row">
@@ -116,17 +137,13 @@
         <div id="layout-checks"></div>
       </div>
 
-      <div class="panel panel-words">
-        <div class="panel-title">Common words</div>
-        <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed. <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
-        <div id="word-bars"></div>
-      </div>
-
       <div class="panel panel-story">
         <div class="panel-title">What is my story?</div>
         <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
-        <div id="story-flag" hidden></div>
-        <div id="story-list"></div>
+        <div class="story-body">
+          <div id="story-list"></div>
+          <div id="story-flag" class="story-side" hidden></div>
+        </div>
       </div>
     </div>
   </section>

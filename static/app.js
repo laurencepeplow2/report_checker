@@ -20,6 +20,7 @@ let checked = new Set();  // chunk_ids marked as manually checked
 let editMode = false;
 let editsByChunk = {};    // chunk_id -> {at, text}: committed (locked) edits
 let editorChunkId = null; // which chunk the editor is currently seeded with
+let hunks = [];           // tracked-changes between original and suggestion
 
 /* ---------------- persistence for "checked" boxes ---------------- */
 
@@ -221,6 +222,87 @@ function renderDiff(container, original, suggestion) {
   }
 }
 
+/* ---- tracked-changes accept/reject ---- */
+
+// Group the word diff into "same" runs and "change" hunks (a contiguous
+// original->proposed swap the reviewer can accept or reject).
+function computeHunks(original, suggestion) {
+  const ops = diffWords(original, suggestion);
+  const out = [];
+  let i = 0;
+  while (i < ops.length) {
+    if (ops[i].type === "same") {
+      let t = "";
+      while (i < ops.length && ops[i].type === "same") { t += ops[i].text; i++; }
+      out.push({ type: "same", text: t });
+    } else {
+      let orig = "", prop = "";
+      while (i < ops.length && ops[i].type !== "same") {
+        if (ops[i].type === "del") orig += ops[i].text;
+        else prop += ops[i].text;
+        i++;
+      }
+      out.push({ type: "change", original: orig, proposed: prop, state: "accept" });
+    }
+  }
+  return out;
+}
+
+// Text with each change resolved to its accepted/rejected side.
+function resolvedText() {
+  return hunks.map((h) =>
+    h.type === "same" ? h.text : (h.state === "accept" ? h.proposed : h.original)
+  ).join("");
+}
+
+function reseedEditorFromHunks() {
+  el("suggestion-editor").innerHTML = escapeHtml(resolvedText());
+}
+
+function renderChangeReview() {
+  const box = el("change-review");
+  box.innerHTML = "";
+  hunks.forEach((h) => {
+    if (h.type === "same") {
+      box.appendChild(document.createTextNode(h.text));
+      return;
+    }
+    const span = document.createElement("span");
+    span.className = "hunk " + (h.state === "accept" ? "accepted" : "rejected");
+    if (h.original.trim()) {
+      const old = document.createElement("span");
+      old.className = "h-old";
+      old.textContent = h.original.trim() + " ";
+      span.appendChild(old);
+    }
+    if (h.proposed.trim()) {
+      const neu = document.createElement("span");
+      neu.className = "h-new";
+      neu.textContent = h.proposed.trim();
+      span.appendChild(neu);
+    }
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "hunk-toggle";
+    toggle.textContent = h.state === "accept" ? "✓" : "✗";
+    toggle.title = h.state === "accept"
+      ? "Change accepted - click to reject" : "Change rejected - click to accept";
+    const flip = () => {
+      h.state = h.state === "accept" ? "reject" : "accept";
+      renderChangeReview();
+      reseedEditorFromHunks();
+    };
+    toggle.addEventListener("click", (e) => { e.stopPropagation(); flip(); });
+    span.addEventListener("click", flip);
+    span.appendChild(document.createTextNode(" "));
+    span.appendChild(toggle);
+    box.appendChild(span);
+    box.appendChild(document.createTextNode(" "));
+  });
+  const hasChanges = hunks.some((h) => h.type === "change");
+  el("change-review-wrap").style.display = hasChanges ? "" : "none";
+}
+
 function render() {
   const content = el("chunk-content");
   const cards = el("issue-cards");
@@ -348,13 +430,15 @@ function render() {
     suggestion.textContent = "Suggestions are not generated for figures - "
       + "use the breached rules on the left to fix the figure by hand.";
   } else if (editMode && chunk.suggestion) {
-    // live-edit mode: editable suggestion + commit/revert
+    // live-edit mode: accept/reject changes, then format + commit
     suggestion.hidden = true;
     diffNote.hidden = true;
     editorArea.hidden = false;
     if (editorChunkId !== chunk.chunk_id) {
-      el("suggestion-editor").innerHTML = escapeHtml(chunk.suggestion);
+      hunks = computeHunks(chunk.text, chunk.suggestion);
       editorChunkId = chunk.chunk_id;
+      renderChangeReview();
+      reseedEditorFromHunks();
     }
   } else if (chunk.suggestion) {
     suggestion.classList.remove("empty");
@@ -509,7 +593,7 @@ function renderHealth(data) {
   if (data.story_flag && data.story_flag.flag) {
     const f = data.story_flag.flag;
     flagBox.hidden = false;
-    flagBox.className = `story-verdict flag-${f}`;
+    flagBox.className = `story-side story-verdict flag-${f}`;
     flagBox.innerHTML = `<span class="flag-chip">${f}</span><span class="verdict-text"></span>`;
     flagBox.querySelector(".verdict-text").textContent = data.story_flag.explanation || "";
   } else {
@@ -586,7 +670,22 @@ document.querySelectorAll(".editor-toolbar button").forEach((btn) => {
 
 el("revert-btn").addEventListener("click", () => {
   const chunk = view[index];
-  if (chunk) el("suggestion-editor").innerHTML = escapeHtml(chunk.suggestion || "");
+  if (!chunk) return;
+  hunks = computeHunks(chunk.text, chunk.suggestion || "");
+  renderChangeReview();
+  reseedEditorFromHunks();
+});
+
+el("accept-all-btn").addEventListener("click", () => {
+  hunks.forEach((h) => { if (h.type === "change") h.state = "accept"; });
+  renderChangeReview();
+  reseedEditorFromHunks();
+});
+
+el("reject-all-btn").addEventListener("click", () => {
+  hunks.forEach((h) => { if (h.type === "change") h.state = "reject"; });
+  renderChangeReview();
+  reseedEditorFromHunks();
 });
 
 /* Walk the contenteditable DOM into style runs for the Docs API. */

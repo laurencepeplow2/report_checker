@@ -207,13 +207,22 @@ SECTION_NUMBER_RE = re.compile(
 # The story is the argument arc - the executive summary and the annex (incl.
 # methodology/bibliography/acknowledgements) sit outside it and are excluded.
 STORY_EXCLUDED_SECTIONS = {"executive summary", "annex"}
+# Headings excluded by name (after stripping any leading section number), so
+# they drop out regardless of section - e.g. a numbered "4. Conclusion".
+STORY_EXCLUDED_NAMES = {"foreword", "recommendations", "conclusion"}
+
+
+def _story_name(text: str) -> str:
+    """Heading text without its leading section number, lowercased - so
+    '4. Conclusion' -> 'conclusion' for name-based exclusion."""
+    return SECTION_NUMBER_RE.sub("", text or "").strip(" .:-").lower()
 
 
 def story(parsed: ParsedDocument) -> list[dict]:
     """Section headers + numbered sub-section headers in document order — read
-    top to bottom: does this tell a story? Executive summary and annex are
-    left out. Section headers are the tab titles (tab-per-section docs) or the
-    H1 headings (single-tab docs)."""
+    top to bottom: does this tell a story? Executive summary, annex, and the
+    foreword / recommendations / conclusion headings are left out. Section
+    headers are the tab titles (tab-per-section docs) or the H1s (single-tab)."""
     # tab-per-section docs add level-0 tab titles; single-tab docs don't, so
     # their section headers are the H1s.
     has_tab_titles = any(h.get("level") == 0 for h in parsed.headings)
@@ -224,6 +233,8 @@ def story(parsed: ParsedDocument) -> list[dict]:
         if not (is_section or SECTION_NUMBER_RE.match(h["text"])):
             continue
         if h.get("section", "").strip().lower() in STORY_EXCLUDED_SECTIONS:
+            continue
+        if _story_name(h["text"]) in STORY_EXCLUDED_NAMES:
             continue
         out.append(h)
     return out

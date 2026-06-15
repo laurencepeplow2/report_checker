@@ -120,6 +120,7 @@ class Rule:
     figure_type: str = ""   # header | sub_header | footer | whole_image | ""
     coded: bool = False     # include_AI_check = coded: deterministic code check
     number_check: bool = False  # only run on paragraphs that contain a number
+    rule_tag: str = ""      # 2-3 word summary of the rule (sheet rule_tag column)
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
 
@@ -268,12 +269,13 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
     """Read the TE_style_rules tab.
 
     Column layout (by position):
-      A include_AI_check (yes / no / coded) | B rules ("Rule: ... Example: ...") |
-      C level | D figure_type (header/sub_header/footer/whole_image) |
-      E number_check (yes = only run on paragraphs with a number) | F (spacer) |
-      G report | H briefing | I pr |
-      J cover | K (spacer) | L executive summary | M recommendations |
-      N main text | O annex | P foreward (sic - sheet spelling)
+      A include_AI_check (yes / no / coded) | B rule_tag (2-3 word summary) |
+      C rules ("Rule: ... Example: ...") | D level |
+      E figure_type (header/sub_header/footer/whole_image) |
+      F number_check (yes = only run on paragraphs with a number) | G (spacer) |
+      H report | I briefing | J pr |
+      K cover | L (spacer) | M executive summary | N recommendations |
+      O main text | P annex | Q foreward (sic - sheet spelling)
 
     include_AI_check values:
       yes   — rule is checked via the AI loop
@@ -289,10 +291,10 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
-    doc_type_cols = {6: "report", 7: "briefing", 8: "pr"}
+    doc_type_cols = {7: "report", 8: "briefing", 9: "pr"}
     # "foreward" keeps the sheet's spelling so the section string matches
-    section_cols = {9: "cover", 11: "executive summary", 12: "recommendations",
-                    13: "main text", 14: "annex", 15: "foreward"}
+    section_cols = {10: "cover", 12: "executive summary", 13: "recommendations",
+                    14: "main text", 15: "annex", 16: "foreward"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
@@ -304,11 +306,12 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
         if include not in ("yes", "coded", "n/a", "na"):
             continue
         coded = include != "yes"
-        raw = (row[1].strip() if len(row) > 1 else "")
+        rule_tag = (row[1].strip() if len(row) > 1 else "")  # keep original case
+        raw = (row[2].strip() if len(row) > 2 else "")
         text, example = split_rule_example(raw)
-        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(2))
+        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(3))
         if not text or level is None:
-            skipped.append(f"row {row_num}: missing rule text or bad level {cell(2)!r}")
+            skipped.append(f"row {row_num}: missing rule text or bad level {cell(3)!r}")
             continue
         rules.append(Rule(
             rule_id=f"rule-{row_num:03d}",
@@ -316,9 +319,10 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
             text=text,
             input_level=level,
             example=example,
-            figure_type=cell(3).replace(" ", "_"),
+            figure_type=cell(4).replace(" ", "_"),
             coded=coded,
-            number_check=cell(4) == "yes",
+            number_check=cell(5) == "yes",
+            rule_tag=rule_tag,
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))

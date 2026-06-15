@@ -147,6 +147,35 @@ async function loadReport(doc) {
   el("stat-red").textContent = String(reds);
   el("stat-amber").textContent = String(ambers);
 
+  // Most-broken rules: live (non-refuted) red+amber flags per rule, top 10,
+  // labelled by the rule_tag (falls back to rule text / id if no tag yet)
+  const ruleCounts = new Map();
+  for (const c of runData.chunks) {
+    for (const r of c.results) {
+      if ((r.flag === "r" || r.flag === "a") && r.verdict !== "refuted") {
+        const e = ruleCounts.get(r.rule_id)
+          || { tag: r.rule_tag || r.rule || r.rule_id, count: 0 };
+        e.count++;
+        ruleCounts.set(r.rule_id, e);
+      }
+    }
+  }
+  const topRules = [...ruleCounts.values()].sort((a, b) => b.count - a.count).slice(0, 10);
+  const rMax = topRules.length ? topRules[0].count : 1;
+  const ruleBars = el("rule-bars");
+  ruleBars.innerHTML = "";
+  for (const r of topRules) {
+    const row = document.createElement("div");
+    row.className = "rule-row";
+    row.innerHTML = `<span class="lbl"></span>
+      <span class="bar-track"><span class="bar" style="width:${Math.round((r.count / rMax) * 100)}%"></span></span>
+      <span class="n">${r.count}</span>`;
+    const lbl = row.querySelector(".lbl");
+    lbl.textContent = r.tag;
+    lbl.title = r.tag;
+    ruleBars.appendChild(row);
+  }
+
   el("level-select").value = "all";
   applyFilter();
 

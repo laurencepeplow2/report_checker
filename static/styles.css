@@ -533,6 +533,25 @@ footer a { color: var(--accent); }
 .dist-row .bar-track { display: block; background: var(--accent-soft); border-radius: 5px; height: 0.85rem; }
 .dist-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
 .dist-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* most-broken rules: rule_tag label, bar, instance count */
+.rule-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr 2rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.32rem;
+  font-size: 0.84rem;
+}
+.rule-row .lbl {
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rule-row .bar-track { display: block; background: var(--accent-soft); border-radius: 5px; height: 0.85rem; }
+.rule-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
+.rule-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* RAG bands: <=10 green, 11-15 amber, 16-20 red, 20+ darker red */
 .dist-row.band-g .bar { background: var(--green); }
 .dist-row.band-a .bar { background: var(--amber); }

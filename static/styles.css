@@ -569,6 +569,8 @@ footer a { color: var(--accent); }
 }
 .msg-dot.flag-r { background: var(--red); }
 .msg-dot.flag-a { background: var(--amber); }
+.msg-dot.flag-g { background: var(--green); }
+.msg-dot.flag-none { background: var(--line); }
 
 .story-item { padding: 0.18rem 0; font-size: 0.88rem; line-height: 1.3; }
 .story-item.lvl-0 { font-weight: 700; margin-top: 0.36rem; color: var(--accent); }

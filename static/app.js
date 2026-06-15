@@ -696,16 +696,19 @@ function renderHealth(data) {
   // Story - each heading shows its per-title message flag (r/a/g)
   const story = el("story-list");
   story.innerHTML = "";
+  const MSG_TITLE = { r: "no clear message", a: "partly clear message",
+                      g: "clear message", none: "not assessed" };
   for (const h of data.story || []) {
     const item = document.createElement("div");
     item.className = `story-item lvl-${Math.min(h.level, 3)}`;
-    if (h.message_flag === "r" || h.message_flag === "a") {
-      const dot = document.createElement("span");
-      dot.className = `msg-dot flag-${h.message_flag}`;
-      dot.title = h.message_flag === "r"
-        ? "no clear message" : "partly clear message";
-      item.appendChild(dot);
-    }
+    // every title gets a r/a/g dot (green for a clear message) so the column
+    // reads as one consistent rag flag per heading, not a mix
+    const flag = (h.message_flag || "").toLowerCase();
+    const cls = ["r", "a", "g"].includes(flag) ? flag : "none";
+    const dot = document.createElement("span");
+    dot.className = `msg-dot flag-${cls}`;
+    dot.title = MSG_TITLE[cls];
+    item.appendChild(dot);
     item.appendChild(document.createTextNode(h.text));
     story.appendChild(item);
   }

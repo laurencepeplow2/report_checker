@@ -20,7 +20,8 @@ import anthropic
 from dotenv import load_dotenv
 
 from app.analysis import (
-    check_links, figure_layout, formatting_checks, story, word_frequency,
+    check_links, figure_layout, formatting_checks, sentence_length_distribution,
+    story, word_frequency,
 )
 from app.check_engine import run_message_flag, run_story_flag, run_word_flagging
 from app.checks import preflight
@@ -74,6 +75,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
              links["unique_links"], links["broken_count"], links["unverified_count"])
 
     words = word_frequency(parsed)
+    sentence_lengths = sentence_length_distribution(parsed)
     headings = story(parsed)
     layout = figure_layout(parsed)
     formatting = formatting_checks(parsed)
@@ -147,6 +149,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
                 "page_limit": config.page_limits.get(parsed.document_type, 0),
                 "links": links,
                 "word_frequency": words,
+                "sentence_lengths": sentence_lengths,
                 "story": headings,
                 "story_flag": story_flag,
                 "figure_layout": layout,

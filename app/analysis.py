@@ -12,6 +12,7 @@ from pathlib import Path
 
 import requests
 
+from app.coded_checks import SENTENCE_SPLIT_RE
 from app.docs_parser import ParsedDocument
 
 # Domain words (T&E topics: transport, BEVs, standards...) that would always
@@ -164,6 +165,33 @@ def word_frequency(parsed: ParsedDocument, top_n: int = 30) -> list[dict]:
     return [{"word": w, "count": c} for w, c in counter.most_common(top_n)]
 
 
+# Word-count buckets for the sentence-length distribution (inclusive ranges).
+SENTENCE_BUCKETS = [
+    ("0-5", 0, 5), ("6-7", 6, 7), ("8-9", 8, 9), ("10-11", 10, 11),
+    ("12-13", 12, 13), ("14-15", 14, 15), ("16-20", 16, 20),
+    ("20+", 21, 10 ** 9),
+]
+
+
+def sentence_length_distribution(parsed: ParsedDocument) -> list[dict]:
+    """Count words per sentence across every paragraph, bucketed for a tidy
+    distribution bar chart. No AI."""
+    counts = [0] * len(SENTENCE_BUCKETS)
+    for chunk in parsed.chunks:
+        if chunk.input_level != "paragraph":
+            continue
+        for sentence in SENTENCE_SPLIT_RE.split(chunk.text):
+            words = len(sentence.split())
+            if words == 0:
+                continue
+            for i, (_label, lo, hi) in enumerate(SENTENCE_BUCKETS):
+                if lo <= words <= hi:
+                    counts[i] += 1
+                    break
+    return [{"label": label, "count": c}
+            for (label, _lo, _hi), c in zip(SENTENCE_BUCKETS, counts)]
+
+
 # A real section/sub-section header starts with a number ("1. Value",
 # "2.3 Lithium") or a roman-numeral compound used in the annex ("I.1
 # Production and sales"). Heading-styled key-message statements and lines
@@ -173,12 +201,19 @@ SECTION_NUMBER_RE = re.compile(
 )
 
 
+# The story is the argument arc - the executive summary and the annex sit
+# outside it, so they are excluded from this section.
+STORY_EXCLUDED_TABS = {"executive summary", "annex"}
+
+
 def story(parsed: ParsedDocument) -> list[dict]:
     """Tab titles + numbered section/sub-section headers in document order —
-    read top to bottom: does this tell a story?"""
+    read top to bottom: does this tell a story? Executive summary and annex
+    headings are left out."""
     return [
         h for h in parsed.headings
-        if h["level"] == 0 or SECTION_NUMBER_RE.match(h["text"])
+        if (h["level"] == 0 or SECTION_NUMBER_RE.match(h["text"]))
+        and h.get("tab", "").strip().lower() not in STORY_EXCLUDED_TABS
     ]
 
 

@@ -104,38 +104,56 @@
 
   <!-- ===================== HEALTH ===================== -->
   <section id="view-health" class="view" hidden>
-    <!-- three independent columns: each packs from the top, no cross-column
-         row alignment, so short panels don't leave large gaps below them -->
+    <!-- left 2/3: two tightly-packed columns + the story below them;
+         right 1/3: formatting + common words, full height -->
     <div class="health-grid">
-      <div class="hcol">
-        <div class="stat panel-flags">
-          <span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span>
-          <span class="stat-divider"></span>
-          <span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span>
-        </div>
-        <div class="panel panel-links">
-          <div class="panel-title">Broken links</div>
-          <div class="bignum-row">
-            <span id="broken-count" class="bignum">–</span>
-            <span id="links-meta" class="muted"></span>
+      <div class="health-left">
+        <div class="health-top">
+          <div class="hcol">
+            <div class="stat panel-flags">
+              <span id="stat-red" class="bignum bad">–</span><span class="muted">red flags</span>
+              <span class="stat-divider"></span>
+              <span id="stat-amber" class="bignum amber">–</span><span class="muted">amber flags</span>
+            </div>
+            <div class="panel panel-links">
+              <div class="panel-title">Broken links</div>
+              <div class="bignum-row">
+                <span id="broken-count" class="bignum">–</span>
+                <span id="links-meta" class="muted"></span>
+              </div>
+              <div id="broken-links"></div>
+            </div>
           </div>
-          <div id="broken-links"></div>
+
+          <div class="hcol">
+            <div class="stat panel-pages" id="stat-pages-card">
+              <span id="stat-pages" class="bignum">–</span>
+              <span class="muted" id="stat-pages-label">&asymp; pages (excl. annex)</span>
+              <span id="stat-pages-flag" class="limit-flag" hidden></span>
+            </div>
+            <div class="panel panel-layout">
+              <div class="panel-title">Figure layout</div>
+              <div id="layout-checks"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-story">
+          <div class="panel-title">What is my story?</div>
+          <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
+          <div class="story-legend">
+            <span><span class="msg-icon flag-g">&check;</span> clear message</span>
+            <span><span class="msg-icon flag-a">?</span> partly clear</span>
+            <span><span class="msg-icon flag-r">&cross;</span> no clear message</span>
+          </div>
+          <div class="story-body">
+            <div id="story-list"></div>
+            <div id="story-flag" class="story-side" hidden></div>
+          </div>
         </div>
       </div>
 
-      <div class="hcol">
-        <div class="stat panel-pages" id="stat-pages-card">
-          <span id="stat-pages" class="bignum">–</span>
-          <span class="muted" id="stat-pages-label">&asymp; pages (excl. annex)</span>
-          <span id="stat-pages-flag" class="limit-flag" hidden></span>
-        </div>
-        <div class="panel panel-layout">
-          <div class="panel-title">Figure layout</div>
-          <div id="layout-checks"></div>
-        </div>
-      </div>
-
-      <div class="hcol">
+      <div class="hcol health-right">
         <div class="panel panel-format">
           <div class="panel-title">Formatting</div>
           <div id="format-checks"></div>
@@ -144,16 +162,10 @@
           <div class="panel-title">Common words</div>
           <p class="muted small">Word counts across all paragraphs &mdash; connecting words and T&amp;E domain words removed. <span class="flag-dot"></span> = AI flags this as a possible style issue.</p>
           <div id="word-bars"></div>
+          <div class="subpanel-title">Sentence length</div>
+          <p class="muted small">Words per sentence across the document.</p>
+          <div id="sentence-dist"></div>
         </div>
-      </div>
-    </div>
-
-    <div class="panel panel-story">
-      <div class="panel-title">What is my story?</div>
-      <p class="muted small">Every numbered section and sub-section header, in order. Read top to bottom &mdash; does it tell a story?</p>
-      <div class="story-body">
-        <div id="story-list"></div>
-        <div id="story-flag" class="story-side" hidden></div>
       </div>
     </div>
   </section>

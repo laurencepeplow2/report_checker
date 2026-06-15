@@ -20,7 +20,8 @@ All vocabulary is lowercased on read.
 - a compact sidebar of every flagged extract, grouped by section, with
   red/amber counts — click to jump;
 - the **extract** with the report's real formatting (bold/italic/underline/
-  links) and the offending text highlighted;
+  links) and the offending text highlighted — hovering a highlight emphasises
+  the rule card it maps to (and vice-versa);
 - the **rules breached**, each independently **verified** by a second pass
   that drops obvious false positives, with a one-line reason and (for coded
   checks) the offending text;
@@ -37,9 +38,12 @@ All vocabulary is lowercased on read.
 - **formatting** coded checks — no footnotes/footers, body text left-aligned
   (not justified);
 - **common words** (frequency with connecting words + T&E domain terms removed;
-  AI marks the ones that look like a style issue);
-- **what is my story?** — every numbered heading in order, each with a
-  per-title AI message flag, plus an overall AI verdict on the narrative.
+  AI marks the ones that look like a style issue), plus a **sentence-length
+  distribution** (words per sentence, bucketed);
+- **what is my story?** — every numbered heading in order (executive summary
+  and annex excluded), each with a per-title AI message-flag icon
+  (✓ clear / ? partly / ✗ no clear message), plus an overall AI verdict on
+  the narrative.
 
 Coded (deterministic, no AI) rules are marked `coded` in the sheet: figure
 layout, footnotes/footers, justification, sentence length, and the

@@ -113,14 +113,17 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   align-items: start;
 }
 
-/* three independent columns: panels stack from the top within each column
-   with no cross-column row alignment, so a short panel doesn't leave a large
-   gap below it. Columns may end at different heights - that's fine. */
+/* left 2/3 (two tightly-packed columns + story below) | right 1/3.
+   Panels stack from the top within each column with no cross-column row
+   alignment, so a short panel doesn't leave a large gap below it. */
 .health-grid {
   display: flex;
   gap: 1rem;
   align-items: flex-start;
 }
+.health-left { flex: 2 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
+.health-right { flex: 1 1 0; }
+.health-top { display: flex; gap: 1rem; align-items: flex-start; }
 .hcol {
   flex: 1 1 0;
   min-width: 0;
@@ -128,7 +131,6 @@ nav { display: flex; gap: 0.4rem; background: #fff; padding: 0.3rem; border-radi
   flex-direction: column;
   gap: 1rem;
 }
-.panel-story { margin-top: 1rem; }
 
 .panel {
   background: var(--card);
@@ -503,6 +505,38 @@ footer a { color: var(--accent); }
 .word-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
 .word-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* a sub-heading inside a panel (e.g. Sentence length, under Common words) */
+.subpanel-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin: 1.1rem 0 0.15rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+/* sentence-length distribution: short bucket label, bar, count */
+.dist-row {
+  display: grid;
+  grid-template-columns: 3rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.32rem;
+  font-size: 0.84rem;
+}
+.dist-row .lbl { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dist-row .bar-track { display: block; background: var(--accent-soft); border-radius: 5px; height: 0.85rem; }
+.dist-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
+.dist-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* hovering a highlighted span in the extract emphasises its rule card(s),
+   and vice-versa */
+.card.rule-focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.card.rule-focus .rule-text { font-weight: 600; }
+mark.mark-focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .health-check { margin-bottom: 0.9rem; }
 .health-check .check-title {
   display: flex;
@@ -553,25 +587,46 @@ footer a { color: var(--accent); }
 .story-side { flex: 0 0 40%; position: sticky; top: 1rem; }
 .story-side.story-verdict { margin-bottom: 0; }
 
-.msg-dot {
-  display: inline-block;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  margin-right: 0.4rem;
-  vertical-align: middle;
+/* per-title message flag icon, in a fixed left gutter so every icon lines
+   up regardless of heading indent: cross (red) / question (amber) / tick (green) */
+.msg-icon {
+  flex: 0 0 1rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.92rem;
+  line-height: 1.3;
   cursor: help;
 }
-.msg-dot.flag-r { background: var(--red); }
-.msg-dot.flag-a { background: var(--amber); }
-.msg-dot.flag-g { background: var(--green); }
-.msg-dot.flag-none { background: var(--line); }
+.msg-icon.flag-r { color: var(--red); }
+.msg-icon.flag-a { color: var(--amber); }
+.msg-icon.flag-g { color: var(--green); }
+.msg-icon.flag-none { color: var(--line); }
 
-.story-item { padding: 0.18rem 0; font-size: 0.88rem; line-height: 1.3; }
+.story-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0.1rem 0 0.7rem;
+}
+.story-legend > span { display: inline-flex; align-items: baseline; gap: 0.3rem; }
+.story-legend .msg-icon { flex: none; }
+
+.story-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.18rem 0;
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+.story-text { flex: 1; min-width: 0; }
 .story-item.lvl-0 { font-weight: 700; margin-top: 0.36rem; color: var(--accent); }
 .story-item.lvl-1 { font-weight: 600; }
-.story-item.lvl-2 { padding-left: 1.1rem; }
-.story-item.lvl-3 { padding-left: 2.2rem; color: var(--muted); }
+.story-item.lvl-2 .story-text { padding-left: 1.1rem; }
+.story-item.lvl-3 { color: var(--muted); }
+.story-item.lvl-3 .story-text { padding-left: 2.2rem; }
 
 @media (max-width: 1000px) {
   .story-body { flex-direction: column; }
@@ -582,5 +637,5 @@ footer a { color: var(--accent); }
 
 @media (max-width: 1000px) {
   .review-grid { grid-template-columns: 1fr; }
-  .health-grid { flex-direction: column; }
+  .health-grid, .health-top { flex-direction: column; }
 }

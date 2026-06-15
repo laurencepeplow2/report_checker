@@ -321,7 +321,7 @@ function maybeReseed() {
 
 // Wrap the first occurrence of `quote` inside the extract in a <mark>,
 // whitespace-flexible and case-insensitive, preserving inline formatting.
-function highlightInExtract(container, quote, flag) {
+function highlightInExtract(container, quote, flag, ruleId) {
   const q = (quote || "").trim();
   if (!q) return;
   const pattern = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
@@ -338,6 +338,7 @@ function highlightInExtract(container, quote, flag) {
     const after = node.nodeValue.slice(m.index + m[0].length);
     const mark = document.createElement("mark");
     mark.className = `hl-${flag}`;
+    if (ruleId) mark.dataset.rule = ruleId;   // links the highlight to its rule card
     mark.textContent = m[0];
     const frag = document.createDocumentFragment();
     if (before) frag.appendChild(document.createTextNode(before));
@@ -441,13 +442,14 @@ function render() {
   // highlight the offending text (verifier / coded quote) inside the extract
   if (!chunk.image) {
     for (const result of sorted) {
-      if (result.quote) highlightInExtract(content, result.quote, result.flag);
+      if (result.quote) highlightInExtract(content, result.quote, result.flag, result.rule_id);
     }
   }
 
   for (const result of sorted) {
     const card = document.createElement("div");
     card.className = `card flag-${result.flag}`;
+    if (result.rule_id) card.dataset.rule = result.rule_id;
     if (result.verdict === "refuted") card.classList.add("refuted");
     card.innerHTML = `
       <span class="flag-chip">${result.flag}</span>
@@ -605,6 +607,23 @@ function renderHealth(data) {
     bars.appendChild(row);
   }
 
+  // Sentence-length distribution (words per sentence, bucketed)
+  const dist = data.sentence_lengths || [];
+  const distMax = dist.reduce((m, d) => Math.max(m, d.count), 1);
+  const distBox = el("sentence-dist");
+  if (distBox) {
+    distBox.innerHTML = "";
+    for (const d of dist) {
+      const row = document.createElement("div");
+      row.className = "dist-row";
+      row.innerHTML = `<span class="lbl"></span>
+        <span class="bar-track"><span class="bar" style="width:${Math.round((d.count / distMax) * 100)}%"></span></span>
+        <span class="n">${d.count}</span>`;
+      row.querySelector(".lbl").textContent = d.label;
+      distBox.appendChild(row);
+    }
+  }
+
   // a finding's location → "heading · ≈ p.N · Open in Google Docs ↗"
   const hdoc = data.doc_id || "";
   const locNode = (loc) => {
@@ -698,23 +717,50 @@ function renderHealth(data) {
   story.innerHTML = "";
   const MSG_TITLE = { r: "no clear message", a: "partly clear message",
                       g: "clear message", none: "not assessed" };
+  const MSG_ICON = { r: "✗", a: "?", g: "✓", none: "•" };
   for (const h of data.story || []) {
     const item = document.createElement("div");
     item.className = `story-item lvl-${Math.min(h.level, 3)}`;
-    // every title gets a r/a/g dot (green for a clear message) so the column
-    // reads as one consistent rag flag per heading, not a mix
+    // every title gets a left-gutter r/a/g icon (tick = clear message,
+    // ? = partly, cross = none) so the flags read as one consistent column
     const flag = (h.message_flag || "").toLowerCase();
     const cls = ["r", "a", "g"].includes(flag) ? flag : "none";
-    const dot = document.createElement("span");
-    dot.className = `msg-dot flag-${cls}`;
-    dot.title = MSG_TITLE[cls];
-    item.appendChild(dot);
-    item.appendChild(document.createTextNode(h.text));
+    const icon = document.createElement("span");
+    icon.className = `msg-icon flag-${cls}`;
+    icon.textContent = MSG_ICON[cls];
+    icon.title = MSG_TITLE[cls];
+    const txt = document.createElement("span");
+    txt.className = "story-text";
+    txt.textContent = h.text;
+    item.appendChild(icon);
+    item.appendChild(txt);
     story.appendChild(item);
   }
 }
 
 /* ---------------- nav + events ---------------- */
+
+// Hovering a highlighted span in the extract emphasises the matching rule
+// card(s) (and vice-versa), so it's clear which rule each highlight maps to.
+function setRuleFocus(ruleId, on) {
+  if (!ruleId) return;
+  const esc = (window.CSS && CSS.escape) ? CSS.escape(ruleId) : ruleId;
+  el("issue-cards").querySelectorAll(`.card[data-rule="${esc}"]`)
+    .forEach((c) => c.classList.toggle("rule-focus", on));
+  el("chunk-content").querySelectorAll(`mark[data-rule="${esc}"]`)
+    .forEach((m) => m.classList.toggle("mark-focus", on));
+}
+for (const [host, sel] of [["chunk-content", "mark[data-rule]"],
+                           ["issue-cards", ".card[data-rule]"]]) {
+  el(host).addEventListener("mouseover", (e) => {
+    const t = e.target.closest(sel);
+    if (t) setRuleFocus(t.dataset.rule, true);
+  });
+  el(host).addEventListener("mouseout", (e) => {
+    const t = e.target.closest(sel);
+    if (t) setRuleFocus(t.dataset.rule, false);
+  });
+}
 
 document.querySelectorAll(".nav-pill").forEach((pill) => {
   pill.addEventListener("click", () => {

@@ -20,6 +20,7 @@ RULES_TAB = "TE_style_rules"
 RULE_LEVEL_TO_CHUNK_LEVEL = {
     "paragraph": "paragraph",
     "figures": "figure",
+    "figure": "figure",
 }
 
 
@@ -31,6 +32,8 @@ STEP_TAGS = {
     "suggested improvement": "rewrite_instruction",
     "overused words": "word_flag_instruction",
     "story flag": "story_flag_instruction",
+    "message flag": "message_flag_instruction",
+    "verification": "verification_instruction",
 }
 
 
@@ -112,6 +115,7 @@ class Rule:
     example: str = ""       # "Example:" part - fed to the AI, hidden in the UI
     figure_type: str = ""   # header | sub_header | footer | whole_image | ""
     coded: bool = False     # include_AI_check = coded: deterministic code check
+    number_check: bool = False  # only run on paragraphs that contain a number
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
 
@@ -260,25 +264,26 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
     Column layout (by position):
       A include_AI_check (yes / no / coded) | B rules ("Rule: ... Example: ...") |
       C level | D figure_type (header/sub_header/footer/whole_image) |
-      E report | F briefing | G pr |
-      H cover | I (spacer) | J executive summary | K main text | L annex
+      E number_check (yes = only run on paragraphs with a number) | F (spacer) |
+      G report | H briefing | I pr |
+      J cover | K (spacer) | L executive summary | M main text | N annex
 
     include_AI_check values:
       yes   — rule is checked via the AI loop
       no    — rule is inactive
       coded — always in the run, but implemented as a deterministic code
-              check (figure width, one figure per subsection, footer
-              length); never sent to the AI
+              check (figure width, one figure per subsection, footer length,
+              full org name, sentence length); never sent to the AI
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:L1000"
+        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:N1000"
     ).execute().get("values", [])
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
-    doc_type_cols = {4: "report", 5: "briefing", 6: "pr"}
-    section_cols = {7: "cover", 9: "executive summary", 10: "main text", 11: "annex"}
+    doc_type_cols = {6: "report", 7: "briefing", 8: "pr"}
+    section_cols = {9: "cover", 11: "executive summary", 12: "main text", 13: "annex"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
@@ -304,6 +309,7 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
             example=example,
             figure_type=cell(3).replace(" ", "_"),
             coded=coded,
+            number_check=cell(4) == "yes",
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))

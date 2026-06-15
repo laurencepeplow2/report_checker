@@ -21,9 +21,9 @@ All vocabulary is lowercased on read.
   red/amber counts — click to jump;
 - the **extract** with the report's real formatting (bold/italic/underline/
   links) and the offending text highlighted;
-- the **rules breached**, each independently **verified** (confirmed ✓ or
-  refuted) with a one-line reason and, for the sentence-length check, the
-  exact long sentence;
+- the **rules breached**, each independently **verified** by a second pass
+  that drops obvious false positives, with a one-line reason and (for coded
+  checks) the offending text;
 - a **suggested improvement** (clean rewritten text by default, "Show changes"
   for the word diff), and an **Edit mode** that lets you accept/reject each
   change, tweak formatting, and **commit the result to the live Google Doc**
@@ -33,11 +33,21 @@ All vocabulary is lowercased on read.
 - red / amber flag totals and approximate **pages vs the per-type page limit**;
 - **broken links** (HTTP-checked; bot-walled hosts marked "unverified");
 - **figure layout** coded checks — one figure per sub-section, full column
-  width, footer ≤ 2 lines (via local OCR);
+  width, footer ≤ 2 lines (via local OCR), each with a deep link to the spot;
+- **formatting** coded checks — no footnotes/footers, body text left-aligned
+  (not justified);
 - **common words** (frequency with connecting words + T&E domain terms removed;
   AI marks the ones that look like a style issue);
-- **what is my story?** — every numbered heading in order, with an AI verdict
-  on whether they tell a convincing story.
+- **what is my story?** — every numbered heading in order, each with a
+  per-title AI message flag, plus an overall AI verdict on the narrative.
+
+Coded (deterministic, no AI) rules are marked `coded` in the sheet: figure
+layout, footnotes/footers, justification, sentence length, and the
+"Transport & Environment" full-name rule. A rule marked `number_check` only
+runs on paragraphs that actually contain a number.
+
+Each run also writes `run_cost_log.csv` (timestamp, file, per-step tokens and
+cost) and a per-report `verification_log.csv` (every flag kept vs refuted).
 
 ## How the document must be structured
 
@@ -75,15 +85,16 @@ the pipeline runs on Windows.
 - **config tab** — `input_level`, `document_type` + `page_limit`, `section`,
   `check_severity` + its `flag_instruction`; a `tag` / `claude_model` / `role`
   / `max_token` block defining one AI step per row (flag check, rewrite,
-  word-flag, story-flag, verification, plus the rewrite context blocks);
-  `report_link` (one or several Google Doc links); `batching`, `cache`,
-  `verify` (yes/no); `mode` + `max_pages`; `sentence_word_flag` +
+  word-flag, story-flag, message-flag, verification, plus the rewrite context
+  blocks); `report_link` (one or several Google Doc links); `batching`,
+  `cache`, `verify` (yes/no); `mode` + `max_pages`; `sentence_word_flag` +
   `sentence_word_limit`.
 - **TE_style_rules tab** — one rule per row: `include_AI_check`
   (`yes` = AI-checked, `no` = off, `coded` = deterministic code check),
   the rule as `Rule: … Example: …`, its `level`, an optional `figure_type`
-  (header / sub_header / footer / whole_image), and yes/no columns per
-  document_type and per section.
+  (header / sub_header / footer / whole_image), `number_check`
+  (`yes` = only run on paragraphs containing a number), and yes/no columns
+  per document_type and per section.
 
 ## Run it
 

@@ -19,8 +19,10 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-from app.analysis import check_links, figure_layout, story, word_frequency
-from app.check_engine import run_story_flag, run_word_flagging
+from app.analysis import (
+    check_links, figure_layout, formatting_checks, story, word_frequency,
+)
+from app.check_engine import run_message_flag, run_story_flag, run_word_flagging
 from app.checks import preflight
 from app.docs_parser import DEFAULT_DOCUMENT_TYPES, parse_document
 from app.runlog import setup_logging
@@ -74,6 +76,10 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
     words = word_frequency(parsed)
     headings = story(parsed)
     layout = figure_layout(parsed)
+    formatting = formatting_checks(parsed)
+    log.info("Formatting: %d footnotes, %d footers, %d justified paragraphs",
+             formatting["footnotes"], formatting["footers"],
+             len(formatting["justified"]))
     log.info("Figure layout: %d multi-figure subsections, %d figures below "
              "%d%% column width, %d footers over %d lines",
              len(layout["multi_figure_subsections"]), len(layout["narrow_figures"]),
@@ -111,6 +117,25 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
     else:
         log.warning("Skipping story flag (no model or API key configured)")
 
+    # AI layer: per-title message flag (does each heading state a message?)
+    message_model = config.model_for("message flag")
+    if headings and message_model and os.environ.get("ANTHROPIC_API_KEY"):
+        client = anthropic.Anthropic()
+        counts = {"r": 0, "a": 0, "g": 0}
+        for h in headings:
+            try:
+                flag, _ti, _to = run_message_flag(client, message_model, h["text"], config)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("message flag failed for %r (%s)", h["text"][:40], exc)
+                flag = ""
+            h["message_flag"] = flag
+            if flag in counts:
+                counts[flag] += 1
+        log.info("Per-title message flags (%s): r=%d a=%d g=%d",
+                 message_model, counts["r"], counts["a"], counts["g"])
+    else:
+        log.warning("Skipping per-title message flag (no model or API key)")
+
     out = run_dir(doc_id) / "analysis.json"
     out.write_text(
         json.dumps(
@@ -125,6 +150,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
                 "story": headings,
                 "story_flag": story_flag,
                 "figure_layout": layout,
+                "formatting": formatting,
             },
             indent=2,
             ensure_ascii=False,

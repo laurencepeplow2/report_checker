@@ -109,8 +109,11 @@ async function loadReport(doc) {
     `${runData.title} - ${docType} - Severity: ${runData.severity}`
     + (runData.run_date ? ` - Date: ${runData.run_date}` : "");
 
+  // a breach counts only if it's red/amber AND not refuted by the second pass
+  const isLiveBreach = (r) =>
+    (r.flag === "r" || r.flag === "a") && r.verdict !== "refuted";
   allChunks = runData.chunks
-    .map((c) => ({ ...c, breaches: c.results.filter((r) => r.flag === "r" || r.flag === "a") }))
+    .map((c) => ({ ...c, breaches: c.results.filter(isLiveBreach) }))
     .filter((c) => c.breaches.length > 0);
 
   // Section toggle: report tabs in document order (rebuilt per report)
@@ -128,10 +131,11 @@ async function loadReport(doc) {
     }
   }
 
-  // Flag totals for the health view
+  // Flag totals for the health view (refuted flags excluded)
   let reds = 0, ambers = 0;
   for (const c of runData.chunks) {
     for (const r of c.results) {
+      if (r.verdict === "refuted") continue;
       if (r.flag === "r") reds++;
       if (r.flag === "a") ambers++;
     }
@@ -344,47 +348,6 @@ function highlightInExtract(container, quote, flag) {
   }
 }
 
-// Compact left rail: every flagged extract in the current filter, grouped
-// by section, with red/amber counts; click to jump.
-function renderNav() {
-  const nav = el("chunk-nav");
-  nav.innerHTML = "";
-  if (!view.length) {
-    nav.innerHTML = '<div class="nav-empty muted small">No flagged extracts.</div>';
-    return;
-  }
-  let lastTab = null;
-  let activeEl = null;
-  view.forEach((c, i) => {
-    if (c.tab !== lastTab) {
-      lastTab = c.tab;
-      const h = document.createElement("div");
-      h.className = "nav-section";
-      h.textContent = c.tab;
-      nav.appendChild(h);
-    }
-    const reds = c.breaches.filter((b) => b.flag === "r").length;
-    const ambers = c.breaches.filter((b) => b.flag === "a").length;
-    const worst = reds ? "r" : "a";
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = `nav-item flag-${worst}`
-      + (i === index ? " active" : "")
-      + (checked.has(c.chunk_id) ? " done" : "");
-    item.innerHTML = `<span class="nav-label"></span><span class="nav-counts"></span>`;
-    item.querySelector(".nav-label").textContent =
-      c.input_level === "figure" ? "▦ Figure" : (c.text || "").slice(0, 34);
-    const counts = [];
-    if (reds) counts.push(`<span class="nc r">${reds}</span>`);
-    if (ambers) counts.push(`<span class="nc a">${ambers}</span>`);
-    item.querySelector(".nav-counts").innerHTML = counts.join("");
-    item.addEventListener("click", () => { index = i; render(); });
-    nav.appendChild(item);
-    if (i === index) activeEl = item;
-  });
-  if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
-}
-
 function render() {
   const content = el("chunk-content");
   const cards = el("issue-cards");
@@ -499,17 +462,8 @@ function render() {
     card.querySelector(".rule-text").textContent = result.rule;  // example excluded
 
     const detailEl = card.querySelector(".card-detail");
-    const bits = [];
-    if (result.verdict === "confirmed") bits.push(`<span class="verdict ok">verified &#10003;</span>`);
-    else if (result.verdict === "refuted") bits.push(`<span class="verdict no">refuted</span>`);
-    if (result.detail) bits.push(`<span class="detail-note"></span>`);
-    if (bits.length) {
-      detailEl.innerHTML = bits.join(" ");
-      const note = detailEl.querySelector(".detail-note");
-      if (note) note.textContent = result.detail;
-    } else {
-      detailEl.remove();
-    }
+    if (result.detail) detailEl.textContent = result.detail;
+    else detailEl.remove();
     cards.appendChild(card);
   }
 
@@ -557,7 +511,6 @@ function render() {
   }
 
   el("position").textContent = `${index + 1} / ${view.length}`;
-  renderNav();
   updateButtons();
 }
 
@@ -650,11 +603,28 @@ function renderHealth(data) {
     bars.appendChild(row);
   }
 
-  // Figure layout checks
-  const layout = data.figure_layout || {};
-  const checks = el("layout-checks");
-  checks.innerHTML = "";
-  const addCheck = (ok, title, items) => {
+  // a finding's location → "heading · ≈ p.N · Open in Google Docs ↗"
+  const hdoc = data.doc_id || "";
+  const locNode = (loc) => {
+    const span = document.createElement("span");
+    const bits = [];
+    if (loc.heading) bits.push(loc.heading);
+    if (loc.page) bits.push(`≈ p.${loc.page}`);
+    span.appendChild(document.createTextNode(bits.join("  ·  ")));
+    if (hdoc && loc.tab_id) {
+      const a = document.createElement("a");
+      a.href = `https://docs.google.com/document/d/${hdoc}/edit?tab=${loc.tab_id}`
+        + (loc.heading_id ? `#heading=${loc.heading_id}` : "");
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "Open in Google Docs ↗";
+      span.appendChild(document.createTextNode(bits.length ? "  ·  " : ""));
+      span.appendChild(a);
+    }
+    return span;
+  };
+  // items: [{text?, loc?}] - text is a plain prefix, loc renders the link line
+  const makeCheck = (container, ok, title, items) => {
     const block = document.createElement("div");
     block.className = `health-check ${ok ? "ok" : "bad"}`;
     block.innerHTML = `<div class="check-title"><span class="check-icon">${ok ? "✓" : "✗"}</span> <span></span></div>`;
@@ -662,39 +632,52 @@ function renderHealth(data) {
     for (const item of items || []) {
       const row = document.createElement("div");
       row.className = "check-item";
-      row.textContent = item;
+      if (item.text) row.appendChild(document.createTextNode(item.text));
+      if (item.loc) {
+        if (item.text) row.appendChild(document.createTextNode("  ·  "));
+        row.appendChild(locNode(item.loc));
+      }
       block.appendChild(row);
     }
-    checks.appendChild(block);
+    container.appendChild(block);
   };
+
+  // Figure layout checks
+  const layout = data.figure_layout || {};
+  const checks = el("layout-checks");
+  checks.innerHTML = "";
   const multi = layout.multi_figure_subsections || [];
-  addCheck(
-    multi.length === 0,
-    multi.length === 0
-      ? "Max one figure per sub-section"
+  makeCheck(checks, multi.length === 0,
+    multi.length === 0 ? "Max one figure per sub-section"
       : `${multi.length} sub-section(s) with more than one figure`,
-    multi.map((m) => `${m.tab} - "${m.heading}" has ${m.figures} figures`)
-  );
+    multi.map((m) => ({ text: `${m.figures} figures`, loc: m })));
   const narrow = layout.narrow_figures || [];
-  addCheck(
-    narrow.length === 0,
+  makeCheck(checks, narrow.length === 0,
     narrow.length === 0
       ? `Figures at full column width (column ≈ ${layout.column_width_pt || "?"}pt)`
       : `${narrow.length} figure(s) below full column width`,
-    narrow.map((n) =>
-      `${n.tab}${n.heading && n.heading !== n.tab ? ` - "${n.heading}"` : ""}`
-      + ` - ${n.pct_of_column}% of column width`)
-  );
+    narrow.map((n) => ({ text: `${n.pct_of_column}% of column width`, loc: n })));
   const longFooters = layout.long_footers || [];
-  addCheck(
-    longFooters.length === 0,
-    longFooters.length === 0
-      ? "Figure footers at most 2 lines"
+  makeCheck(checks, longFooters.length === 0,
+    longFooters.length === 0 ? "Figure footers at most 2 lines"
       : `${longFooters.length} figure footer(s) over 2 lines`,
-    longFooters.map((f) =>
-      `${f.tab}${f.heading && f.heading !== f.tab ? ` - "${f.heading}"` : ""}`
-      + ` - ${f.lines} lines: "${f.text}"`)
-  );
+    longFooters.map((f) => ({ text: `${f.lines} lines: "${f.text}"`, loc: f })));
+
+  // Formatting checks (footnotes/footers, justification)
+  const fmt = data.formatting || {};
+  const fc = el("format-checks");
+  if (fc) {
+    fc.innerHTML = "";
+    const notes = (fmt.footnotes || 0) + (fmt.footers || 0);
+    makeCheck(fc, notes === 0,
+      notes === 0 ? "No footnotes or footers"
+        : `${fmt.footnotes || 0} footnote(s), ${fmt.footers || 0} footer(s)`, []);
+    const just = fmt.justified || [];
+    makeCheck(fc, just.length === 0,
+      just.length === 0 ? "Body text left-aligned (not justified)"
+        : `${just.length} justified paragraph(s) - should be left-aligned`,
+      just.map((j) => ({ loc: j })));
+  }
 
   // Story flag (AI verdict on the heading sequence)
   const flagBox = el("story-flag");
@@ -708,13 +691,20 @@ function renderHealth(data) {
     flagBox.hidden = true;
   }
 
-  // Story
+  // Story - each heading shows its per-title message flag (r/a/g)
   const story = el("story-list");
   story.innerHTML = "";
   for (const h of data.story || []) {
     const item = document.createElement("div");
     item.className = `story-item lvl-${Math.min(h.level, 3)}`;
-    item.textContent = h.text;
+    if (h.message_flag === "r" || h.message_flag === "a") {
+      const dot = document.createElement("span");
+      dot.className = `msg-dot flag-${h.message_flag}`;
+      dot.title = h.message_flag === "r"
+        ? "no clear message" : "partly clear message";
+      item.appendChild(dot);
+    }
+    item.appendChild(document.createTextNode(h.text));
     story.appendChild(item);
   }
 }

@@ -193,6 +193,17 @@ def _chunk_heading(chunk) -> str:
     return chunk.heading_path[-1] if chunk.heading_path else chunk.tab_title
 
 
+def _loc(chunk) -> dict:
+    """Location fields so the UI can show "heading · ≈ p.N · Open in Docs"."""
+    return {
+        "tab": chunk.tab_title,
+        "heading": _chunk_heading(chunk),
+        "page": chunk.approx_page,
+        "tab_id": chunk.tab_id,
+        "heading_id": chunk.heading_id,
+    }
+
+
 def figure_layout(parsed: ParsedDocument) -> dict:
     """Deterministic layout checks on figures (no AI):
     - max one figure per sub-section
@@ -202,12 +213,7 @@ def figure_layout(parsed: ParsedDocument) -> dict:
     multi = []
     for chunk in parsed.chunks:
         if chunk.input_level == "subsection" and len(chunk.figures) > 1:
-            heading = _chunk_heading(chunk)
-            multi.append({
-                "tab": chunk.tab_title,
-                "heading": heading,
-                "figures": len(chunk.figures),
-            })
+            multi.append({**_loc(chunk), "figures": len(chunk.figures)})
 
     narrow = []
     column = parsed.column_width_pt
@@ -217,14 +223,9 @@ def figure_layout(parsed: ParsedDocument) -> dict:
                 continue
             width = chunk.figures[0].width_pt
             if width and width < FULL_WIDTH_THRESHOLD * column:
-                heading = _chunk_heading(chunk)
-                narrow.append({
-                    "figure_id": chunk.chunk_id,
-                    "tab": chunk.tab_title,
-                    "heading": heading,
-                    "width_pt": round(width),
-                    "pct_of_column": round(100 * width / column),
-                })
+                narrow.append({**_loc(chunk), "figure_id": chunk.chunk_id,
+                               "width_pt": round(width),
+                               "pct_of_column": round(100 * width / column)})
 
     # Footer length via local OCR (the "coded" footer rule). Needs the
     # figure images on disk; silently skipped if OCR is unavailable.
@@ -242,14 +243,9 @@ def figure_layout(parsed: ParsedDocument) -> dict:
             except Exception:  # noqa: BLE001 — one bad image shouldn't kill the run
                 continue
             if footer.get("lines", 0) > MAX_FOOTER_LINES:
-                heading = _chunk_heading(chunk)
-                long_footers.append({
-                    "figure_id": chunk.chunk_id,
-                    "tab": chunk.tab_title,
-                    "heading": heading,
-                    "lines": footer["lines"],
-                    "text": footer.get("text", "")[:160],
-                })
+                long_footers.append({**_loc(chunk), "figure_id": chunk.chunk_id,
+                                     "lines": footer["lines"],
+                                     "text": footer.get("text", "")[:160]})
     except ImportError:
         pass  # winocr not available on this platform
 
@@ -258,4 +254,18 @@ def figure_layout(parsed: ParsedDocument) -> dict:
         "multi_figure_subsections": multi,
         "narrow_figures": narrow,
         "long_footers": long_footers,
+    }
+
+
+def formatting_checks(parsed: ParsedDocument) -> dict:
+    """Document-level coded format checks (no AI): no footnotes/footers,
+    body text left-aligned (not justified)."""
+    justified = [
+        {**_loc(c)} for c in parsed.chunks
+        if c.input_level == "paragraph" and c.alignment == "justified"
+    ]
+    return {
+        "footnotes": parsed.footnote_count,
+        "footers": parsed.footer_count,
+        "justified": justified,
     }

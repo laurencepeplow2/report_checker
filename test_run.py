@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 
 from app.check_engine import (
     build_check_params, build_rewrite_params, build_system, build_user_text,
-    build_verify_params, estimate_cost, parse_check_message,
+    build_verify_params, cost_for, estimate_cost, parse_check_message,
     parse_rewrite_message, parse_verify_message, run_batch, run_check,
     run_rewrite, run_verification,
 )
@@ -44,8 +44,39 @@ log = logging.getLogger("report_checker.test_run")
 FALLBACK_DOC_ID = "1dyLbq5hMDUJlK9mUszUcUYAxzmo80To0h3n7ar-_B_8"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FLAG_HISTORY_CSV = Path(__file__).resolve().parent / "flag_history.csv"
+COST_LOG_CSV = Path(__file__).resolve().parent / "run_cost_log.csv"
 
 load_dotenv()
+
+
+def write_cost_log(row: dict) -> None:
+    """Append one row per run: timestamp, file, per-step tokens and cost."""
+    new_file = not COST_LOG_CSV.exists()
+    with COST_LOG_CSV.open("a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if new_file:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def write_verification_log(out_dir: Path, rows: list[dict]) -> None:
+    """Per-run log of every r/a flag and whether the second pass kept it."""
+    flagged = [r for r in rows if r["flag"] in ("r", "a")]
+    with (out_dir / "verification_log.csv").open(
+            "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "chunk_id", "section", "tab", "rule_id", "rule", "flag",
+            "decision", "verdict", "reason", "quote"])
+        writer.writeheader()
+        for r in flagged:
+            verdict = r.get("verdict", "")
+            decision = "refuted" if verdict == "refuted" else "kept"
+            writer.writerow({
+                "chunk_id": r["chunk_id"], "section": r["section"],
+                "tab": r["tab"], "rule_id": r["rule_id"], "rule": r["rule"],
+                "flag": r["flag"], "decision": decision, "verdict": verdict,
+                "reason": r.get("detail", ""), "quote": r.get("quote", ""),
+            })
 
 
 def update_flag_history(title: str, rows: list[dict]) -> None:
@@ -151,53 +182,70 @@ def main() -> None:
     log.info("Full log: %s", log_path)
 
 
-def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
-    """Deterministic checks shown in Review next to the AI flags - no API
-    calls. Sentence length runs against every prose paragraph in scope."""
-    from app.coded_checks import sentence_length_flag
+def coded_rule_kind(rule) -> str | None:
+    """Map a coded paragraph rule to its deterministic checker."""
+    t = rule.text.lower()
+    if "sentence" in t and ("word" in t or "short" in t):
+        return "sentence_length"
+    if "transport & environment" in t or "transport and environment" in t \
+            or 'full name' in t:
+        return "org_name"
+    return None
 
-    sentence_rule = next(
-        (r for r in rules if r.coded and "sentence" in r.text.lower()
-         and "word" in r.text.lower()),
-        None,
-    )
-    if sentence_rule is None or not config.sentence_word_limits:
+
+def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
+    """Per-paragraph deterministic checks shown in Review next to the AI
+    flags - no API calls. Dispatches each coded paragraph rule to its
+    checker (sentence length, full org name)."""
+    from app.coded_checks import org_full_name_flag, sentence_length_flag
+
+    coded_rules = [(r, coded_rule_kind(r)) for r in rules if r.coded]
+    coded_rules = [(r, k) for r, k in coded_rules if k]
+    if not coded_rules:
         return []
 
     rows = []
     for chunk in sample:
         if chunk.input_level != "paragraph" or chunk.kind == "table":
             continue
-        if not sentence_rule.applies_to(chunk.input_level, parsed.document_type,
-                                        chunk.section):
-            continue
-        flag, detail, sentence = sentence_length_flag(
-            chunk.text, config.sentence_word_limits)
-        rows.append({
-            "chunk_id": chunk.chunk_id,
-            "tab": chunk.tab_title,
-            "section": chunk.section,
-            "input_level": chunk.input_level,
-            "chunk_text": chunk.text,
-            "rule_id": sentence_rule.rule_id,
-            "category": "",
-            "rule": sentence_rule.text,
-            "example": sentence_rule.example,
-            "figure_type": "",
-            "severity": "coded",
-            "flag": flag,
-            "raw_response": detail,
-            # coded checks are deterministic - they self-verify, and the
-            # offending sentence is the highlight quote
-            "verdict": "confirmed" if flag in ("r", "a") else "",
-            "quote": sentence,
-            "detail": detail,
-            "system_prompt": "",
-            "user_prompt": "",
-            "model": "coded",
-            "input_tokens": 0,
-            "output_tokens": 0,
-        })
+        for rule, kind in coded_rules:
+            if not rule.applies_to(chunk.input_level, parsed.document_type,
+                                   chunk.section):
+                continue
+            if kind == "sentence_length":
+                if not config.sentence_word_limits:
+                    continue
+                flag, detail, quote = sentence_length_flag(
+                    chunk.text, config.sentence_word_limits)
+            elif kind == "org_name":
+                flag, detail, quote = org_full_name_flag(chunk.text)
+            else:
+                continue
+            rows.append({
+                "chunk_id": chunk.chunk_id,
+                "tab": chunk.tab_title,
+                "section": chunk.section,
+                "input_level": chunk.input_level,
+                "chunk_text": chunk.text,
+                "rule_id": rule.rule_id,
+                "category": "",
+                "rule": rule.text,
+                "example": rule.example,
+                "figure_type": "",
+                "severity": "coded",
+                "flag": flag,
+                "raw_response": detail,
+                # coded checks are deterministic - they self-verify, and the
+                # matched text is the highlight quote
+                "verdict": "confirmed" if flag in ("r", "a") else "",
+                "quote": quote,
+                "detail": detail,
+                "system_prompt": "",
+                "user_prompt": "",
+                "model": "coded",
+                "input_tokens": 0,
+                "output_tokens": 0,
+            })
     return rows
 
 
@@ -223,19 +271,33 @@ def run_for_doc(
     system_prompt = build_system(severity, config)
 
     # Work list: every applicable (chunk, AI rule) pair (coded rules are
-    # handled deterministically below, never sent to the AI)
+    # handled deterministically below, never sent to the AI). Rules marked
+    # number_check only run on paragraphs that actually contain a number.
+    from app.coded_checks import contains_number
     ai_rules = [r for r in rules if not r.coded]
     work: list[tuple[Chunk, object]] = []
+    skipped_number = 0
     for chunk in sample:
+        chunk_has_number = contains_number(chunk.text)
         for rule in ai_rules:
-            if rule.applies_to(chunk.input_level, parsed.document_type, chunk.section):
-                work.append((chunk, rule))
+            if not rule.applies_to(chunk.input_level, parsed.document_type, chunk.section):
+                continue
+            if rule.number_check and chunk.input_level == "paragraph" \
+                    and not chunk_has_number:
+                skipped_number += 1
+                continue
+            work.append((chunk, rule))
+    if skipped_number:
+        log.info("number_check skipped %d (chunk, rule) pairs with no number",
+                 skipped_number)
     log.info("%d checks to run (%s)", len(work),
              "Batches API, 50%% token cost" if config.batching else "serial")
 
     # ---- first loop: flag checks --------------------------------------
     results: dict[tuple[str, str], object] = {}
     total_in = total_out = 0
+    # per-step tokens for the cost log: [input, output]
+    tok = {"flag": [0, 0], "verify": [0, 0], "rewrite": [0, 0]}
     if config.batching:
         request_params = {
             f"chk-{i}": build_check_params(model, severity, rule, chunk, config)
@@ -258,6 +320,8 @@ def run_for_doc(
         result = results[(chunk.chunk_id, rule.rule_id)]
         total_in += result.input_tokens
         total_out += result.output_tokens
+        tok["flag"][0] += result.input_tokens
+        tok["flag"][1] += result.output_tokens
         if result.flag in ("r", "a"):
             breached_by_chunk.setdefault(chunk.chunk_id, []).append(rule)
         rows.append({
@@ -313,10 +377,8 @@ def run_for_doc(
                 verdicts[(c.chunk_id, r.rule_id)] = parse_verify_message(msgs.get(f"vf-{i}"))
         else:
             for c, r in verify_work:
-                v = run_verification(client, verify_model, r, c, config)
-                verdicts[(c.chunk_id, r.rule_id)] = v
-                total_in += v.input_tokens
-                total_out += v.output_tokens
+                verdicts[(c.chunk_id, r.rule_id)] = \
+                    run_verification(client, verify_model, r, c, config)
         # attach to the AI rows, validating the quote is really in the text
         text_by_chunk = {c.chunk_id: c.text for c in sample}
         confirmed = refuted = 0
@@ -328,6 +390,10 @@ def run_for_doc(
             row["detail"] = v.note
             row["quote"] = v.quote if _quote_in_text(
                 v.quote, text_by_chunk.get(row["chunk_id"], "")) else ""
+            total_in += v.input_tokens
+            total_out += v.output_tokens
+            tok["verify"][0] += v.input_tokens
+            tok["verify"][1] += v.output_tokens
             confirmed += v.verdict == "confirmed"
             refuted += v.verdict == "refuted"
         log.info("Verification: %d confirmed, %d refuted", confirmed, refuted)
@@ -351,6 +417,8 @@ def run_for_doc(
             rewrite = parse_rewrite_message(messages.get(f"rw-{i}"))
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
+            tok["rewrite"][0] += rewrite.input_tokens
+            tok["rewrite"][1] += rewrite.output_tokens
             if rewrite.suggestion:
                 suggestions[chunk.chunk_id] = rewrite.suggestion
     else:
@@ -360,6 +428,8 @@ def run_for_doc(
                                   context_before=before, context_after=after)
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
+            tok["rewrite"][0] += rewrite.input_tokens
+            tok["rewrite"][1] += rewrite.output_tokens
             suggestions[chunk.chunk_id] = rewrite.suggestion
             log.info("  rewrite %s (%d breached rules) -> %d chars",
                      chunk.chunk_id, len(breached), len(rewrite.suggestion))
@@ -423,16 +493,52 @@ def run_for_doc(
 
     flags = [r["flag"] for r in rows]
     update_flag_history(parsed.title, rows)
+
+    # ---- verification log: what each flag's second pass kept / refuted
+    verify_model = config.model_for("verification")
+    write_verification_log(out_dir, rows)
+
+    # ---- cost log: one appended row per run, with a per-step breakdown
+    refuted = sum(1 for r in rows if r.get("verdict") == "refuted")
+    step_models = {"flag": model, "verify": verify_model, "rewrite": rewrite_model}
+    cost_flag = cost_for(model, *tok["flag"])
+    cost_verify = cost_for(verify_model, *tok["verify"])
+    cost_rewrite = cost_for(rewrite_model, *tok["rewrite"])
+    cost_total = cost_flag + cost_verify + cost_rewrite
+    write_cost_log({
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "file": parsed.title,
+        "doc_id": doc_id,
+        "mode": config.mode,
+        "severity": severity,
+        "checks": len(rows),
+        "red": flags.count("r"),
+        "amber": flags.count("a"),
+        "green": flags.count("g"),
+        "refuted": refuted,
+        "rewrites": len(suggestions),
+        "flag_model": model,
+        "flag_in": tok["flag"][0], "flag_out": tok["flag"][1], "flag_cost": round(cost_flag, 4),
+        "verify_model": verify_model,
+        "verify_in": tok["verify"][0], "verify_out": tok["verify"][1], "verify_cost": round(cost_verify, 4),
+        "rewrite_model": rewrite_model,
+        "rewrite_in": tok["rewrite"][0], "rewrite_out": tok["rewrite"][1], "rewrite_cost": round(cost_rewrite, 4),
+        "total_in": total_in, "total_out": total_out, "total_cost": round(cost_total, 4),
+    })
+
     update_index(doc_id, parsed.title, mode=config.mode, severity=severity,
-                 checks=len(rows), red=flags.count("r"), amber=flags.count("a"))
-    log.info("Flag history updated -> %s", FLAG_HISTORY_CSV.name)
+                 checks=len(rows), red=flags.count("r"), amber=flags.count("a"),
+                 refuted=refuted, cost=round(cost_total, 4))
+    log.info("Flag history -> %s | cost log -> %s",
+             FLAG_HISTORY_CSV.name, COST_LOG_CSV.name)
 
     log.info("%d checks -> %s (+ test_run.json)", len(rows), out_path)
-    log.info("Flags: r=%d a=%d g=%d invalid=%d",
+    log.info("Flags: r=%d a=%d g=%d invalid=%d (refuted by verify: %d)",
              flags.count("r"), flags.count("a"), flags.count("g"),
-             flags.count("invalid"))
-    log.info("Tokens: %d in / %d out (~$%.4f)",
-             total_in, total_out, estimate_cost(total_in, total_out))
+             flags.count("invalid"), refuted)
+    log.info("Tokens: %d in / %d out | cost ~$%.4f (flag $%.4f, verify $%.4f, "
+             "rewrite $%.4f)", total_in, total_out, cost_total,
+             cost_flag, cost_verify, cost_rewrite)
 
     post_run_checks(parsed, rows, suggestions)
 

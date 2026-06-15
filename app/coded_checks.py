@@ -8,6 +8,35 @@ import re
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
+NUMBER_WORDS = {
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+    "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty",
+    "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million",
+    "billion", "trillion",
+}
+_DIGIT_RE = re.compile(r"\d")
+_WORD_RE = re.compile(r"[a-z]+")
+
+# "Transport & Environment" / "Transport and Environment" in full
+ORG_FULL_NAME_RE = re.compile(r"Transport\s*(?:&|and)\s*Environment", re.IGNORECASE)
+
+
+def contains_number(text: str) -> bool:
+    """True if the text has a numeral (1, 100.1, 10,000) or a number word."""
+    if _DIGIT_RE.search(text):
+        return True
+    return any(w in NUMBER_WORDS for w in _WORD_RE.findall(text.lower()))
+
+
+def org_full_name_flag(text: str) -> tuple[str, str, str]:
+    """Flag use of the organisation's full name (should always be "T&E").
+    Returns (flag, detail, quote)."""
+    m = ORG_FULL_NAME_RE.search(text)
+    if not m:
+        return "g", "uses T&E (or no organisation name)", ""
+    return "r", 'uses the full organisation name instead of "T&E"', m.group(0)
+
 
 def sentence_length_flag(text: str, limits: dict[str, int]) -> tuple[str, str, str]:
     """Flag a paragraph by its longest sentence.

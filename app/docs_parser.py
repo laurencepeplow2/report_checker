@@ -83,6 +83,7 @@ class Chunk:
     heading_id: str = ""      # nearest heading anchor (#heading=...)
     approx_page: int = 0      # rough printed-page estimate
     formatted_text: str = ""  # text with **bold**, *italic*, <u>..</u>, [link](url)
+    alignment: str = ""       # paragraph alignment, e.g. "justified"
 
 
 @dataclass
@@ -94,6 +95,8 @@ class ParsedDocument:
     links: list[dict] = field(default_factory=list)     # {url, text, tab}
     headings: list[dict] = field(default_factory=list)  # {tab, level, text} in doc order
     column_width_pt: float = 0.0  # page width minus margins, for layout checks
+    footnote_count: int = 0       # footnotes in the document (should be none)
+    footer_count: int = 0         # page footers defined (should be none)
 
     def by_level(self, level: str) -> list[Chunk]:
         return [c for c in self.chunks if c.input_level == level]
@@ -242,9 +245,30 @@ def parse_document(
     links: list[dict] = []
     headings: list[dict] = []
     column_width_pt = 0.0
+    footnote_count = footer_count = 0
     order = 0
 
+    # footnotes / page footers live either top-level or per documentTab.
+    # Google Docs creates default (empty) footer objects, so count only
+    # those that actually contain text.
+    def _nonempty_segments(segments: dict) -> int:
+        count = 0
+        for seg in (segments or {}).values():
+            text = "".join(
+                _paragraph_text(el["paragraph"])
+                for el in seg.get("content", []) if "paragraph" in el
+            )
+            if text.strip():
+                count += 1
+        return count
+
+    footnote_count += _nonempty_segments(doc.get("footnotes", {}))
+    footer_count += _nonempty_segments(doc.get("footers", {}))
+
     for tab in tabs:
+        dt = tab.get("documentTab", {})
+        footnote_count += _nonempty_segments(dt.get("footnotes", {}))
+        footer_count += _nonempty_segments(dt.get("footers", {}))
         title = tab.get("tabProperties", {}).get("title", "").strip()
         if title.lower() == "cover" or "cover" in title.lower():
             found = _extract_document_type(tab, allowed_types)
@@ -279,6 +303,8 @@ def parse_document(
         links=links,
         headings=headings,
         column_width_pt=column_width_pt,
+        footnote_count=footnote_count,
+        footer_count=footer_count,
     )
 
 
@@ -440,6 +466,7 @@ def _parse_tab(
 
         if text:
             formatted = _paragraph_formatted(paragraph).strip()
+            align = paragraph.get("paragraphStyle", {}).get("alignment", "")
             chunks.append(Chunk(
                 chunk_id=f"{tab_id}-para-{para_index}",
                 input_level="paragraph",
@@ -452,6 +479,7 @@ def _parse_tab(
                 formatted_text=formatted,
                 tab_id=tab_id,
                 heading_id=state["heading_id"],
+                alignment="justified" if align == "JUSTIFIED" else align.lower(),
             ))
             order += 1
             para_index += 1

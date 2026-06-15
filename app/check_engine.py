@@ -24,7 +24,23 @@ from app.styleguide import Rule, StyleGuideConfig
 
 VALID_FLAGS = {"r", "a", "g"}
 
-PRICE_PER_MTOK = {"input": 1.0, "output": 5.0}  # Haiku 4.5
+PRICE_PER_MTOK = {"input": 1.0, "output": 5.0}  # Haiku 4.5 (default fallback)
+
+# $ per million tokens, matched by model-id prefix.
+MODEL_PRICES = {
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-7": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-6": {"input": 5.0, "output": 25.0},
+    "claude-fable-5": {"input": 10.0, "output": 50.0},
+}
+
+
+def cost_for(model: str, input_tokens: int, output_tokens: int) -> float:
+    price = next((p for prefix, p in MODEL_PRICES.items()
+                  if (model or "").startswith(prefix)), PRICE_PER_MTOK)
+    return (input_tokens * price["input"] + output_tokens * price["output"]) / 1_000_000
 
 # ---- prompt building blocks (destined for the config tab) ----------------
 
@@ -477,14 +493,15 @@ def parse_rewrite_message(message) -> RewriteResult:
 # ---- verification pass: independent confirm/refute + offending quote -----
 
 VERIFY_INSTRUCTION = (
-    "You are independently double-checking a style flag raised on an "
-    "extract. Given one rule and the extract, decide whether the extract "
-    "genuinely breaches that rule. Be fair, but do not invent violations. "
-    "If it genuinely breaches the rule, copy the exact verbatim span from "
-    "the extract that breaches it - word for word, no paraphrase. Respond "
-    "with: verdict 'confirmed' (a real breach) or 'refuted' (not actually a "
-    "breach); quote (the verbatim offending text, or empty when refuted); "
-    "and a note of at most twelve words explaining the decision."
+    "You are sanity-checking a style flag raised on an extract, to remove "
+    "only the obvious false positives. Default to keeping the flag. Mark "
+    "'refuted' ONLY when the extract clearly does not breach the rule at "
+    "all; if it genuinely or even arguably breaches the rule, mark "
+    "'confirmed'. When in doubt, confirm. When confirming, copy the exact "
+    "verbatim span from the extract that breaches the rule - word for word, "
+    "no paraphrase. Respond with: verdict 'confirmed' or 'refuted'; quote "
+    "(the verbatim offending text, or empty when refuted); and a note of at "
+    "most twelve words explaining the decision."
 )
 
 VERIFY_SCHEMA = {
@@ -512,13 +529,24 @@ def build_verify_params(model: str, rule: Rule, chunk: Chunk,
                         config: StyleGuideConfig | None = None) -> dict:
     role = (config.role_context if config else "") or ROLE_CONTEXT
     instruction = _override(config, "verification_instruction", VERIFY_INSTRUCTION)
-    user = f"Rule:\n{rule.text}\n\nExtract:\n{_chunk_body(chunk)}"
+    # figures: send the same cropped image part + OCR text the flag check
+    # saw, so the verifier actually inspects the footer/header/etc.
+    content: list[dict] = []
+    if chunk.input_level == "figure":
+        content.extend(_figure_content(rule, chunk))
+        content.append({"type": "text",
+                        "text": f"Rule:\n{rule.text}\n\nThe image above (the "
+                                "relevant part of the figure) is the extract "
+                                "being checked."})
+    else:
+        content.append({"type": "text",
+                        "text": f"Rule:\n{rule.text}\n\nExtract:\n{_chunk_body(chunk)}"})
     return {
         "model": model,
         "max_tokens": (config.max_tokens_for("verification", 400, 200)
                        if config else 400),
         "system": _system_blocks(f"{role}\n\n{instruction}", config),
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": content}],
         "output_config": {"format": {"type": "json_schema", "schema": VERIFY_SCHEMA}},
     }
 
@@ -544,6 +572,30 @@ def parse_verify_message(message) -> VerifyResult:
     if message is None:
         return VerifyResult("confirmed", "", "(verification unavailable)")
     return _parse_verify(message)
+
+
+MESSAGE_FLAG_INSTRUCTION = (
+    "You will receive one section or sub-section title from a draft "
+    "publication. Judge whether the title itself conveys a clear message or "
+    "conclusion, not just a topic label. Answer with exactly one lowercase "
+    "letter and nothing else: r (no message - just a topic), a (partly), "
+    "g (a clear message)."
+)
+
+
+def run_message_flag(client: anthropic.Anthropic, model: str, title: str,
+                     config: StyleGuideConfig | None = None) -> tuple[str, int, int]:
+    """One r/a/g flag for whether a single heading conveys a clear message."""
+    instruction = _override(config, "message_flag_instruction", MESSAGE_FLAG_INSTRUCTION)
+    response = client.messages.create(
+        model=model,
+        max_tokens=(config.max_tokens_for("message flag", 4, 4) if config else 4),
+        system=instruction,
+        messages=[{"role": "user", "content": f"Title: {title}"}],
+    )
+    raw = "".join(b.text for b in response.content if b.type == "text").strip().lower().strip(".")
+    flag = raw if raw in VALID_FLAGS else "g"
+    return flag, response.usage.input_tokens, response.usage.output_tokens
 
 
 def run_word_flagging(

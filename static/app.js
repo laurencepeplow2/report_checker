@@ -615,7 +615,7 @@ function renderHealth(data) {
     distBox.innerHTML = "";
     for (const d of dist) {
       const row = document.createElement("div");
-      row.className = "dist-row";
+      row.className = "dist-row band-" + (d.band || "g");
       row.innerHTML = `<span class="lbl"></span>
         <span class="bar-track"><span class="bar" style="width:${Math.round((d.count / distMax) * 100)}%"></span></span>
         <span class="n">${d.count}</span>`;

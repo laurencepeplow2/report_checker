@@ -165,17 +165,20 @@ def word_frequency(parsed: ParsedDocument, top_n: int = 30) -> list[dict]:
     return [{"word": w, "count": c} for w, c in counter.most_common(top_n)]
 
 
-# Word-count buckets for the sentence-length distribution (inclusive ranges).
+# Word-count buckets for the sentence-length distribution (inclusive ranges),
+# with a RAG band so the bars echo the sentence-length guidance: <=10 green,
+# 11-15 amber, 16-20 red, 20+ darker red. Bucket edges land on the band
+# boundaries (10 / 15 / 20) so each bar is a single colour.
 SENTENCE_BUCKETS = [
-    ("0-5", 0, 5), ("6-7", 6, 7), ("8-9", 8, 9), ("10-11", 10, 11),
-    ("12-13", 12, 13), ("14-15", 14, 15), ("16-20", 16, 20),
-    ("20+", 21, 10 ** 9),
+    ("0-5", 0, 5, "g"), ("6-7", 6, 7, "g"), ("8-10", 8, 10, "g"),
+    ("11-13", 11, 13, "a"), ("14-15", 14, 15, "a"),
+    ("16-20", 16, 20, "r"), ("20+", 21, 10 ** 9, "dr"),
 ]
 
 
 def sentence_length_distribution(parsed: ParsedDocument) -> list[dict]:
-    """Count words per sentence across every paragraph, bucketed for a tidy
-    distribution bar chart. No AI."""
+    """Count words per sentence across every paragraph, bucketed (with a RAG
+    band) for a tidy distribution bar chart. No AI."""
     counts = [0] * len(SENTENCE_BUCKETS)
     for chunk in parsed.chunks:
         if chunk.input_level != "paragraph":
@@ -184,12 +187,12 @@ def sentence_length_distribution(parsed: ParsedDocument) -> list[dict]:
             words = len(sentence.split())
             if words == 0:
                 continue
-            for i, (_label, lo, hi) in enumerate(SENTENCE_BUCKETS):
+            for i, (_label, lo, hi, _band) in enumerate(SENTENCE_BUCKETS):
                 if lo <= words <= hi:
                     counts[i] += 1
                     break
-    return [{"label": label, "count": c}
-            for (label, _lo, _hi), c in zip(SENTENCE_BUCKETS, counts)]
+    return [{"label": label, "count": c, "band": band}
+            for (label, _lo, _hi, band), c in zip(SENTENCE_BUCKETS, counts)]
 
 
 # A real section/sub-section header starts with a number ("1. Value",

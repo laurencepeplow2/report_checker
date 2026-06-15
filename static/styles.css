@@ -3,6 +3,7 @@
    light orange #FBF5F0, peach #F0DCCD, green #034538, light green #73D68A */
 :root {
   --red: #b3261e;
+  --red-dark: #6f120c;        /* 20+ word sentences */
   --red-bg: #fbeae7;
   --red-line: #eac3bc;
   --amber: #b5541b;          /* darkened brand orange for contrast */
@@ -516,6 +517,8 @@ footer a { color: var(--accent); }
   padding-top: 0.8rem;
   border-top: 1px solid var(--line);
 }
+/* the first sub-heading sits right under the panel title - no divider */
+.subpanel-title.first { margin-top: 0.2rem; padding-top: 0; border-top: none; }
 
 /* sentence-length distribution: short bucket label, bar, count */
 .dist-row {
@@ -530,6 +533,11 @@ footer a { color: var(--accent); }
 .dist-row .bar-track { display: block; background: var(--accent-soft); border-radius: 5px; height: 0.85rem; }
 .dist-row .bar { display: block; background: var(--accent); border-radius: 5px; height: 100%; }
 .dist-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* RAG bands: <=10 green, 11-15 amber, 16-20 red, 20+ darker red */
+.dist-row.band-g .bar { background: var(--green); }
+.dist-row.band-a .bar { background: var(--amber); }
+.dist-row.band-r .bar { background: var(--red); }
+.dist-row.band-dr .bar { background: var(--red-dark); }
 
 /* hovering a highlighted span in the extract emphasises its rule card(s),
    and vice-versa */
@@ -622,7 +630,7 @@ mark.mark-focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   line-height: 1.3;
 }
 .story-text { flex: 1; min-width: 0; }
-.story-item.lvl-0 { font-weight: 700; margin-top: 0.36rem; color: var(--accent); }
+.story-item.lvl-0 { font-weight: 700; margin-top: 0.36rem; }
 .story-item.lvl-1 { font-weight: 600; }
 .story-item.lvl-2 .story-text { padding-left: 1.1rem; }
 .story-item.lvl-3 { color: var(--muted); }

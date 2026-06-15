@@ -168,6 +168,13 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
         top = ", ".join(f"{w['word']} ({w['count']})" for w in words[:8])
         log.info("Top words: %s", top)
 
+    # refresh the sheet's automated_checks tab (best-effort; needs Editor)
+    try:
+        from app.automated_checks import write_automated_checks
+        write_automated_checks(doc_id, config)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("automated_checks update skipped: %s", exc)
+
 
 if __name__ == "__main__":
     main()

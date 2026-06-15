@@ -53,6 +53,13 @@ runs on paragraphs that actually contain a number.
 Each run also writes `run_cost_log.csv` (timestamp, file, per-step tokens and
 cost) and a per-report `verification_log.csv` (every flag kept vs refuted).
 
+**Automated checks.** After a run, the top 20 pass/fail checks for the latest
+run are written to the `automated_checks` tab of the master sheet — a single
+at-a-glance view (parse → type/sections → valid AI flags → verification →
+rewrites → cost → health analyses) so you can confirm a run (especially on a
+new-shaped document) completed without errors. Writing needs Editor access on
+the sheet; without it the run still completes and just logs a warning.
+
 ## How the document must be structured
 
 - One **document tab** per section: `Cover`, `Executive Summary`, numbered

@@ -609,6 +609,14 @@ def run_for_doc(
 
     post_run_checks(parsed, rows, suggestions)
 
+    # publish the at-a-glance pass/fail summary to the sheet's automated_checks
+    # tab (best-effort: needs Editor access, never aborts the run)
+    try:
+        from app.automated_checks import write_automated_checks
+        write_automated_checks(doc_id, config)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("automated_checks update skipped: %s", exc)
+
 
 if __name__ == "__main__":
     main()

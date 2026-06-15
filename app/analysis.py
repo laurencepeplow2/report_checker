@@ -201,20 +201,29 @@ SECTION_NUMBER_RE = re.compile(
 )
 
 
-# The story is the argument arc - the executive summary and the annex sit
-# outside it, so they are excluded from this section.
-STORY_EXCLUDED_TABS = {"executive summary", "annex"}
+# The story is the argument arc - the executive summary and the annex (incl.
+# methodology/bibliography/acknowledgements) sit outside it and are excluded.
+STORY_EXCLUDED_SECTIONS = {"executive summary", "annex"}
 
 
 def story(parsed: ParsedDocument) -> list[dict]:
-    """Tab titles + numbered section/sub-section headers in document order —
-    read top to bottom: does this tell a story? Executive summary and annex
-    headings are left out."""
-    return [
-        h for h in parsed.headings
-        if (h["level"] == 0 or SECTION_NUMBER_RE.match(h["text"]))
-        and h.get("tab", "").strip().lower() not in STORY_EXCLUDED_TABS
-    ]
+    """Section headers + numbered sub-section headers in document order — read
+    top to bottom: does this tell a story? Executive summary and annex are
+    left out. Section headers are the tab titles (tab-per-section docs) or the
+    H1 headings (single-tab docs)."""
+    # tab-per-section docs add level-0 tab titles; single-tab docs don't, so
+    # their section headers are the H1s.
+    has_tab_titles = any(h.get("level") == 0 for h in parsed.headings)
+    section_level = 0 if has_tab_titles else 1
+    out = []
+    for h in parsed.headings:
+        is_section = h.get("level", 9) <= section_level
+        if not (is_section or SECTION_NUMBER_RE.match(h["text"])):
+            continue
+        if h.get("section", "").strip().lower() in STORY_EXCLUDED_SECTIONS:
+            continue
+        out.append(h)
+    return out
 
 
 # A figure is "full column width" if it spans at least this share of the

@@ -31,9 +31,20 @@ DEFAULT_DOCUMENT_TYPES = ["report", "briefing", "pr"]
 # cover / executive summary / main text / annex. Cover is handled separately
 # (discarded except document_type); every numbered chapter incl.
 # recommendations is "main text".
-SECTION_RULES = [  # first match on the lowercased tab title wins
+# Map a tab title OR an H1 heading to a canonical section (first match on the
+# lowercased text wins). These section strings must match the section columns
+# in the TE_style_rules sheet - note "foreward" keeps the sheet's spelling.
+# Back matter (methodology / bibliography / acknowledgements) counts as annex.
+SECTION_RULES = [
     ("executive summary", "executive summary"),
+    ("foreword", "foreward"),
+    ("recommendation", "recommendations"),
     ("annex", "annex"),
+    ("appendix", "annex"),
+    ("methodology", "annex"),
+    ("bibliograph", "annex"),
+    ("acknowledg", "annex"),
+    ("references", "annex"),
 ]
 DEFAULT_SECTION = "main text"
 
@@ -265,16 +276,30 @@ def parse_document(
     footnote_count += _nonempty_segments(doc.get("footnotes", {}))
     footer_count += _nonempty_segments(doc.get("footers", {}))
 
+    # Two layouts: tab-per-section (template - a separate "Cover" tab, one tab
+    # per section) and single-tab (everything in one tab, sections are the H1
+    # headings, with a title page as front matter). One content tab => the
+    # latter; the lone tab is parsed by headings, not discarded as a cover.
+    single_tab = len(tabs) == 1
+
     for tab in tabs:
         dt = tab.get("documentTab", {})
         footnote_count += _nonempty_segments(dt.get("footnotes", {}))
         footer_count += _nonempty_segments(dt.get("footers", {}))
         title = tab.get("tabProperties", {}).get("title", "").strip()
-        if title.lower() == "cover" or "cover" in title.lower():
+        # a dedicated cover tab is discarded (its document_type aside); only
+        # treat a tab as the cover when it isn't the document's only tab
+        if not single_tab and (title.lower() == "cover" or "cover" in title.lower()):
             found = _extract_document_type(tab, allowed_types)
             if found:
                 document_type = found
             continue  # cover content is otherwise discarded
+
+        if single_tab:
+            # the title page (before the first H1) carries the document type
+            found = _extract_document_type(tab, allowed_types)
+            if found:
+                document_type = found
 
         section = _section_for_tab(title)
         if not column_width_pt:
@@ -284,7 +309,7 @@ def parse_document(
                        + doc_style.get("marginRight", {}).get("magnitude", 0))
             column_width_pt = max(page - margins, 0)
         order = _parse_tab(tab, title, section, chunks, order, image_dir,
-                           links, headings)
+                           links, headings, heading_sections=single_tab)
 
     chars = 0
     for chunk in chunks:  # appended in document order
@@ -329,13 +354,22 @@ def _parse_tab(
     image_dir: Path | None,
     links: list[dict],
     headings: list[dict],
+    heading_sections: bool = False,
 ) -> int:
     document_tab = tab.get("documentTab", {})
     body = document_tab.get("body", {}).get("content", [])
     inline_objects = document_tab.get("inlineObjects", {})
     tab_id = tab.get("tabProperties", {}).get("tabId", "tab")
 
-    headings.append({"tab": tab_title, "level": 0, "text": tab_title})
+    # tab-per-section doc: the tab title is the section, added as a level-0
+    # heading. single-tab doc (heading_sections): the H1s inside are the
+    # sections, so the tab title is not a heading and section is set per H1.
+    if not heading_sections:
+        headings.append({"tab": tab_title, "level": 0, "text": tab_title,
+                         "section": section})
+
+    cur = {"section": section}                # updated on each H1 in heading mode
+    seen_h1 = {"yes": not heading_sections}    # skip front matter before first H1
 
     heading_stack: list[tuple[int, str]] = []  # (level, text)
     state = {"heading_id": ""}  # nearest real heading anchor for deep links
@@ -358,7 +392,7 @@ def _parse_tab(
             chunk_id=f"{tab_id}-sub-{sub_index}",
             input_level="subsection",
             document_type="",
-            section=section,
+            section=cur["section"],
             tab_title=tab_title,
             heading_path=list(sub_heading_path),
             order=order,
@@ -377,6 +411,8 @@ def _parse_tab(
     para_index = fig_index = 0
     for element in body:
         if "table" in element:
+            if not seen_h1["yes"]:
+                continue   # front-matter table before the first H1
             for row in element["table"].get("tableRows", []):
                 for cell in row.get("tableCells", []):
                     for cell_el in cell.get("content", []):
@@ -388,7 +424,7 @@ def _parse_tab(
                     chunk_id=f"{tab_id}-para-{para_index}",
                     input_level="paragraph",
                     document_type="",
-                    section=section,
+                    section=cur["section"],
                     tab_title=tab_title,
                     heading_path=heading_path(),
                     order=order,
@@ -420,14 +456,23 @@ def _parse_tab(
             if text:
                 # Every heading starts a new subsection.
                 flush_subsection()
+                # in a single-tab doc each top-level (H1) heading is a section
+                if heading_sections and level == 1:
+                    cur["section"] = _section_for_tab(text)
+                    seen_h1["yes"] = True
                 while heading_stack and heading_stack[-1][0] >= level:
                     heading_stack.pop()
                 heading_stack.append((level, text))
                 sub_heading_path[:] = heading_path()
-                headings.append({"tab": tab_title, "level": level, "text": text})
+                headings.append({"tab": tab_title, "level": level, "text": text,
+                                 "section": cur["section"]})
                 heading_anchor = paragraph.get("paragraphStyle", {}).get("headingId")
                 if heading_anchor:
                     state["heading_id"] = heading_anchor
+            continue
+
+        # content paragraph / figure - skip front matter before the first H1
+        if not seen_h1["yes"]:
             continue
 
         # Figures embedded in this paragraph
@@ -462,7 +507,7 @@ def _parse_tab(
                 chunk_id=figure.figure_id,
                 input_level="figure",
                 document_type="",
-                section=section,
+                section=cur["section"],
                 tab_title=tab_title,
                 heading_path=heading_path(),
                 order=order,
@@ -483,7 +528,7 @@ def _parse_tab(
                 chunk_id=f"{tab_id}-para-{para_index}",
                 input_level="paragraph",
                 document_type="",
-                section=section,
+                section=cur["section"],
                 tab_title=tab_title,
                 heading_path=heading_path(),
                 order=order,

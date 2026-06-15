@@ -272,7 +272,8 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
       C level | D figure_type (header/sub_header/footer/whole_image) |
       E number_check (yes = only run on paragraphs with a number) | F (spacer) |
       G report | H briefing | I pr |
-      J cover | K (spacer) | L executive summary | M main text | N annex
+      J cover | K (spacer) | L executive summary | M recommendations |
+      N main text | O annex | P foreward (sic - sheet spelling)
 
     include_AI_check values:
       yes   — rule is checked via the AI loop
@@ -283,13 +284,15 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
     """
     sheet_id = sheet_id or find_sheet_id()
     values = sheets_service().spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:N1000"
+        spreadsheetId=sheet_id, range=f"'{RULES_TAB}'!A1:Z1000"
     ).execute().get("values", [])
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
     doc_type_cols = {6: "report", 7: "briefing", 8: "pr"}
-    section_cols = {9: "cover", 11: "executive summary", 12: "main text", 13: "annex"}
+    # "foreward" keeps the sheet's spelling so the section string matches
+    section_cols = {9: "cover", 11: "executive summary", 12: "recommendations",
+                    13: "main text", 14: "annex", 15: "foreward"}
 
     rules: list[Rule] = []
     skipped: list[str] = []

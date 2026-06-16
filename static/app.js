@@ -231,6 +231,37 @@ function formattedHtml(text) {
   return s;
 }
 
+// A [label](url) link contains spaces, so the word diff splits it across
+// tokens and it can't be rendered/diffed as a unit. Collapse each link to a
+// single whitespace-free placeholder before diffing, and expand placeholders
+// back to a real <a> when rendering (renderRich). Rebuilt per chunk.
+const LINK_MD_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+// private-use delimiters: no whitespace (diff keeps the link as one token),
+// never collide with real digits, untouched by escapeHtml / markdown regexes
+const PH_L = String.fromCharCode(0xE000);
+const PH_R = String.fromCharCode(0xE001);
+const PH_RE = new RegExp(PH_L + "(\\d+)" + PH_R, "g");
+let linkRegistry = [];
+
+function packLinks(text) {
+  return (text || "").replace(LINK_MD_RE, (m, label, url) => {
+    const i = linkRegistry.length;
+    linkRegistry.push({ label, url });
+    return PH_L + i + PH_R;
+  });
+}
+
+// Render text that may contain link placeholders + markdown markup as HTML.
+function renderRich(text) {
+  let s = formattedHtml(text || "");
+  return s.replace(PH_RE, (m, i) => {
+    const lk = linkRegistry[+i];
+    if (!lk) return "";
+    const url = lk.url.replace(/"/g, "&quot;");
+    return `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(lk.label)}</a>`;
+  });
+}
+
 /* Word-level diff (LCS) between original and suggestion. */
 function diffWords(a, b) {
   const A = a.split(/(\s+)/).filter((t) => t !== "");
@@ -256,20 +287,20 @@ function diffWords(a, b) {
 
 function renderDiff(container, original, suggestion) {
   container.innerHTML = "";
-  for (const op of diffWords(original, suggestion)) {
-    if (op.type === "same") {
-      container.appendChild(document.createTextNode(op.text));
-    } else if (op.type === "add") {
-      const ins = document.createElement("ins");
-      ins.className = "diff-add";
-      ins.textContent = op.text;
-      container.appendChild(ins);
-    } else {
-      const del = document.createElement("del");
-      del.className = "diff-del";
-      del.textContent = op.text;
-      container.appendChild(del);
-    }
+  // coalesce consecutive ops of the same type so a [label](url) link (which
+  // the word diff splits across tokens) renders as one formatted hyperlink
+  const ops = diffWords(original, suggestion);
+  let i = 0;
+  while (i < ops.length) {
+    const type = ops[i].type;
+    let text = "";
+    while (i < ops.length && ops[i].type === type) { text += ops[i].text; i++; }
+    const tag = type === "add" ? "ins" : type === "del" ? "del" : "span";
+    const node = document.createElement(tag);
+    if (type === "add") node.className = "diff-add";
+    if (type === "del") node.className = "diff-del";
+    node.innerHTML = renderRich(text);
+    container.appendChild(node);
   }
 }
 
@@ -307,7 +338,10 @@ function resolvedText() {
 }
 
 function reseedEditorFromHunks() {
-  el("suggestion-editor").innerHTML = escapeHtml(resolvedText());
+  // render the rewrite's markup as real HTML (<a>/<strong>/<em>/<u>) so links
+  // and emphasis show formatted in the editor and commit to the Doc as such -
+  // not as literal [label](url) text
+  el("suggestion-editor").innerHTML = renderRich(resolvedText());
 }
 
 function renderChangeReview() {
@@ -315,7 +349,9 @@ function renderChangeReview() {
   box.innerHTML = "";
   hunks.forEach((h) => {
     if (h.type === "same") {
-      box.appendChild(document.createTextNode(h.text));
+      const s = document.createElement("span");
+      s.innerHTML = renderRich(h.text);   // render links/emphasis
+      box.appendChild(s);
       return;
     }
     const span = document.createElement("span");
@@ -323,13 +359,13 @@ function renderChangeReview() {
     if (h.original.trim()) {
       const old = document.createElement("span");
       old.className = "h-old";
-      old.textContent = h.original.trim() + " ";
+      old.innerHTML = renderRich(h.original.trim()) + " ";
       span.appendChild(old);
     }
     if (h.proposed.trim()) {
       const neu = document.createElement("span");
       neu.className = "h-new";
-      neu.textContent = h.proposed.trim();
+      neu.innerHTML = renderRich(h.proposed.trim());
       span.appendChild(neu);
     }
     const toggle = document.createElement("button");
@@ -428,6 +464,11 @@ function render() {
   content.classList.remove("empty");
 
   const chunk = view[index];
+
+  // pack the suggestion's links into atomic placeholders for this chunk; the
+  // diff/editor work on `sug`, renderRich() expands placeholders back to <a>
+  linkRegistry = [];
+  const sug = packLinks(chunk.suggestion || "");
 
   box.disabled = false;
   box.checked = checked.has(chunk.chunk_id);
@@ -538,7 +579,7 @@ function render() {
     suggestion.hidden = true;
     editorArea.hidden = false;
     if (editorChunkId !== chunk.chunk_id) {
-      hunks = computeHunks(chunk.text, chunk.suggestion);
+      hunks = computeHunks(chunk.text, sug);
       editorChunkId = chunk.chunk_id;
       editorDirty = false;
       renderChangeReview();
@@ -551,8 +592,8 @@ function render() {
     diffToggle.textContent = showDiff ? "Hide changes" : "Show changes";
     // render the rewrite's markup (links, bold, italic, underline) like the
     // extract - otherwise a [label](url) link shows as raw text with a long URL
-    if (showDiff) renderDiff(suggestion, chunk.text, chunk.suggestion);
-    else suggestion.innerHTML = formattedHtml(chunk.suggestion);
+    if (showDiff) renderDiff(suggestion, chunk.text, sug);
+    else suggestion.innerHTML = renderRich(sug);
     el("copy-btn").hidden = false;
   } else {
     suggestion.classList.add("empty");
@@ -867,7 +908,8 @@ document.querySelectorAll(".editor-toolbar button").forEach((btn) => {
 el("revert-btn").addEventListener("click", () => {
   const chunk = view[index];
   if (!chunk) return;
-  hunks = computeHunks(chunk.text, chunk.suggestion || "");
+  linkRegistry = [];   // re-pack this chunk's links (mirror render())
+  hunks = computeHunks(chunk.text, packLinks(chunk.suggestion || ""));
   renderChangeReview();
   reseedEditorFromHunks();   // explicit reset - discard manual edits
   editorDirty = false;

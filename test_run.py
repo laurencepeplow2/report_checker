@@ -449,8 +449,11 @@ def run_for_doc(
                 continue
             row["verdict"] = v.verdict
             row["detail"] = v.note
-            row["quote"] = v.quote if _quote_in_text(
-                v.quote, text_by_chunk.get(row["chunk_id"], "")) else ""
+            # keep every verifier span that is genuinely present in the text
+            valid = [q for q in v.quotes
+                     if _quote_in_text(q, text_by_chunk.get(row["chunk_id"], ""))]
+            row["quotes"] = valid
+            row["quote"] = valid[0] if valid else ""
             total_in += v.input_tokens
             total_out += v.output_tokens
             tok["verify"][0] += v.input_tokens
@@ -478,10 +481,12 @@ def run_for_doc(
     # ---- second loop: rewrites for breached non-figure chunks ---------
     # (an AI call, so skipped once the cost cap is reached / AI was skipped)
     suggestions: dict[str, str] = {}
+    # tables and figures can't be auto-rewritten/committed - skip them
     rewrite_work = [
         (chunk, breached_by_chunk[chunk.chunk_id])
         for chunk in sample
-        if chunk.chunk_id in breached_by_chunk and chunk.input_level != "figure"
+        if chunk.chunk_id in breached_by_chunk
+        and chunk.input_level != "figure" and chunk.kind != "table"
     ] if ai_budget_left else []
     log.info("%d chunks need rewrites", len(rewrite_work))
     if config.batching and rewrite_work:

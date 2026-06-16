@@ -218,13 +218,14 @@ def _story_name(text: str) -> str:
     return SECTION_NUMBER_RE.sub("", text or "").strip(" .:-").lower()
 
 
-def story(parsed: ParsedDocument) -> list[dict]:
+def story(parsed: ParsedDocument, for_display: bool = True) -> list[dict]:
     """Section headers + numbered sub-section headers in document order — read
-    top to bottom: does this tell a story? Executive summary, annex, and the
-    foreword / recommendations / conclusion headings are left out. Section
-    headers are the tab titles (tab-per-section docs) or the H1s (single-tab)."""
-    # tab-per-section docs add level-0 tab titles; single-tab docs don't, so
-    # their section headers are the H1s.
+    top to bottom: does this tell a story? Executive summary and annex are
+    always left out. The foreword / recommendations / conclusion headings are
+    hidden from the displayed list (for_display=True) but kept for the AI
+    narrative verdict (for_display=False) - they are part of the real arc, so
+    excluding them would wrongly read as "no conclusion". Section headers are
+    the tab titles (tab-per-section docs) or the H1s (single-tab)."""
     has_tab_titles = any(h.get("level") == 0 for h in parsed.headings)
     section_level = 0 if has_tab_titles else 1
     out = []
@@ -234,7 +235,7 @@ def story(parsed: ParsedDocument) -> list[dict]:
             continue
         if h.get("section", "").strip().lower() in STORY_EXCLUDED_SECTIONS:
             continue
-        if _story_name(h["text"]) in STORY_EXCLUDED_NAMES:
+        if for_display and _story_name(h["text"]) in STORY_EXCLUDED_NAMES:
             continue
         out.append(h)
     return out

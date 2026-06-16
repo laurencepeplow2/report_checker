@@ -589,6 +589,11 @@ function render() {
     suggestion.classList.add("empty");
     suggestion.textContent = "Suggestions are not generated for figures - "
       + "use the breached rules on the left to fix the figure by hand.";
+  } else if (chunk.kind === "table") {
+    suggestion.classList.add("empty");
+    suggestion.textContent = "This extract is a table - tables aren't "
+      + "auto-rewritten or committed; use the breached rules to fix it in the "
+      + "doc by hand.";
   } else if (editMode && chunk.suggestion) {
     // live-edit mode: accept/reject changes, then format + commit
     suggestion.hidden = true;

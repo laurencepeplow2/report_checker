@@ -593,21 +593,22 @@ VERIFY_INSTRUCTION = (
     "only the obvious false positives. Default to keeping the flag. Mark "
     "'refuted' ONLY when the extract clearly does not breach the rule at "
     "all; if it genuinely or even arguably breaches the rule, mark "
-    "'confirmed'. When in doubt, confirm. When confirming, copy the exact "
-    "verbatim span from the extract that breaches the rule - word for word, "
-    "no paraphrase. Respond with: verdict 'confirmed' or 'refuted'; quote "
-    "(the verbatim offending text, or empty when refuted); and a note of at "
-    "most twelve words explaining the decision."
+    "'confirmed'. When in doubt, confirm. When confirming, list EVERY "
+    "distinct span of the extract that breaches the rule - each copied "
+    "verbatim, word for word, no paraphrase (so if the rule is breached in "
+    "several places, return them all). Respond with: verdict 'confirmed' or "
+    "'refuted'; quotes (an array of the verbatim offending spans, empty when "
+    "refuted); and a note of at most twelve words explaining the decision."
 )
 
 VERIFY_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {"type": "string", "enum": ["confirmed", "refuted"]},
-        "quote": {"type": "string"},
+        "quotes": {"type": "array", "items": {"type": "string"}},
         "note": {"type": "string"},
     },
-    "required": ["verdict", "quote", "note"],
+    "required": ["verdict", "quotes", "note"],
     "additionalProperties": False,
 }
 
@@ -615,10 +616,14 @@ VERIFY_SCHEMA = {
 @dataclass
 class VerifyResult:
     verdict: str
-    quote: str
+    quotes: list
     note: str
     input_tokens: int = 0
     output_tokens: int = 0
+
+    @property
+    def quote(self) -> str:
+        return self.quotes[0] if self.quotes else ""
 
 
 def build_verify_params(model: str, rule: Rule, chunk: Chunk,
@@ -651,8 +656,13 @@ def _parse_verify(response) -> VerifyResult:
     import json as _json
     text = next(b.text for b in response.content if b.type == "text")
     data = _json.loads(text)
+    quotes = data.get("quotes")
+    if quotes is None:                       # tolerate the old single-quote shape
+        q = data.get("quote", "")
+        quotes = [q] if q else []
+    quotes = [q for q in quotes if isinstance(q, str) and q.strip()]
     return VerifyResult(
-        data.get("verdict", "confirmed"), data.get("quote", ""),
+        data.get("verdict", "confirmed"), quotes,
         data.get("note", ""), response.usage.input_tokens,
         response.usage.output_tokens,
     )
@@ -666,7 +676,7 @@ def run_verification(client: anthropic.Anthropic, model: str, rule: Rule,
 
 def parse_verify_message(message) -> VerifyResult:
     if message is None:
-        return VerifyResult("confirmed", "", "(verification unavailable)")
+        return VerifyResult("confirmed", [], "(verification unavailable)")
     return _parse_verify(message)
 
 

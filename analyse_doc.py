@@ -76,7 +76,8 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
 
     words = word_frequency(parsed)
     sentence_lengths = sentence_length_distribution(parsed)
-    headings = story(parsed)
+    headings = story(parsed)                       # displayed list
+    story_arc = story(parsed, for_display=False)   # full arc for the AI verdict
     layout = figure_layout(parsed)
     formatting = formatting_checks(parsed)
     log.info("Formatting: %d footnotes, %d footers, %d justified paragraphs",
@@ -109,9 +110,9 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
     # AI layer: does the heading sequence tell a convincing story?
     story_flag: dict = {}
     story_model = config.model_for("story flag")
-    if headings and story_model and os.environ.get("ANTHROPIC_API_KEY"):
+    if story_arc and story_model and os.environ.get("ANTHROPIC_API_KEY"):
         try:
-            story_flag = run_story_flag(anthropic.Anthropic(), story_model, headings, config)
+            story_flag = run_story_flag(anthropic.Anthropic(), story_model, story_arc, config)
             log.info("Story flag (%s): %s - %s", story_model,
                      story_flag.get("flag"), story_flag.get("explanation"))
         except Exception as exc:  # noqa: BLE001 — health page works without AI

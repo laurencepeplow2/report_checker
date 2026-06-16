@@ -243,6 +243,7 @@ def coded_check_rows(config, rules, parsed, sample) -> list[dict]:
                 # matched text is the highlight quote
                 "verdict": "confirmed" if flag in ("r", "a") else "",
                 "quote": quote,
+                "quotes": [],
                 "detail": detail,
                 "system_prompt": "",
                 "user_prompt": "",
@@ -385,6 +386,7 @@ def run_for_doc(
             "raw_response": result.raw_response,
             "verdict": "",   # filled by the verification pass below
             "quote": "",
+            "quotes": [],
             "detail": "",
             "system_prompt": system_prompt,
             "user_prompt": build_user_text(rule, chunk),
@@ -468,7 +470,10 @@ def run_for_doc(
                 and is_emphasis_rule(row.get("rule", ""))):
             spans = emphasis_spans(fmt_by_chunk.get(row["chunk_id"], ""))
             if spans:
-                row["quote"] = max(spans, key=len)
+                seen = set()
+                uniq = [s for s in spans if not (s in seen or seen.add(s))]
+                row["quotes"] = uniq               # highlight every bold span
+                row["quote"] = max(uniq, key=len)   # longest = primary (CSV/compat)
 
     # ---- second loop: rewrites for breached non-figure chunks ---------
     # (an AI call, so skipped once the cost cap is reached / AI was skipped)
@@ -557,6 +562,7 @@ def run_for_doc(
             "flag": row["flag"],
             "verdict": row.get("verdict", ""),
             "quote": row.get("quote", ""),
+            "quotes": row.get("quotes", []),
             "detail": row.get("detail", ""),
         })
     (out_dir / "test_run.json").write_text(

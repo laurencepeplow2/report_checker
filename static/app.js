@@ -400,33 +400,40 @@ function maybeReseed() {
   editorDirty = false;
 }
 
-// Wrap the first occurrence of `quote` inside the extract in a <mark>,
+// Wrap EVERY occurrence of `quote` inside the extract in a <mark>,
 // whitespace-flexible and case-insensitive, preserving inline formatting.
+// (A rule breached in several places - repeated waffle word, multiple bold
+// spans - should highlight all of them, not just the first.)
 function highlightInExtract(container, quote, flag, ruleId) {
   const q = (quote || "").trim();
   if (!q) return;
   const pattern = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
   let re;
-  try { re = new RegExp(pattern, "i"); } catch { return; }
+  try { re = new RegExp(pattern, "gi"); } catch { return; }
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement.closest("mark")) continue;
-    const m = re.exec(node.nodeValue);
-    if (!m) continue;
-    const before = node.nodeValue.slice(0, m.index);
-    const after = node.nodeValue.slice(m.index + m[0].length);
-    const mark = document.createElement("mark");
-    mark.className = `hl-${flag}`;
-    if (ruleId) mark.dataset.rule = ruleId;   // links the highlight to its rule card
-    mark.textContent = m[0];
+    const text = node.nodeValue;
+    re.lastIndex = 0;
     const frag = document.createDocumentFragment();
-    if (before) frag.appendChild(document.createTextNode(before));
-    frag.appendChild(mark);
-    if (after) frag.appendChild(document.createTextNode(after));
-    node.parentNode.replaceChild(frag, node);
-    return;
+    let last = 0, m, matched = false;
+    while ((m = re.exec(text))) {
+      matched = true;
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const mark = document.createElement("mark");
+      mark.className = `hl-${flag}`;
+      if (ruleId) mark.dataset.rule = ruleId;   // links the highlight to its rule card
+      mark.textContent = m[0];
+      frag.appendChild(mark);
+      last = m.index + m[0].length;
+      if (m[0].length === 0) re.lastIndex++;    // guard against zero-width loops
+    }
+    if (matched) {
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    }
   }
 }
 
@@ -525,16 +532,19 @@ function render() {
   el("breach-count").textContent = String(sorted.length);
   el("breach-count").classList.toggle("none", sorted.length === 0);
 
-  // highlight the offending text (verifier / coded quote) inside the extract.
-  // Apply longest quotes first: a short quote highlighted first splits a text
-  // node and stops a longer overlapping quote (e.g. a whole bold sentence)
-  // from matching.
+  // highlight the offending text (verifier / coded quotes) inside the extract.
+  // A result may carry several quotes (e.g. every bold span); highlight each,
+  // longest first so a short quote doesn't split a node and block a longer
+  // overlapping one. Every occurrence of each quote is marked.
   if (!chunk.image) {
-    const byQuoteLen = [...sorted].sort(
-      (a, b) => (b.quote || "").length - (a.quote || "").length);
-    for (const result of byQuoteLen) {
-      if (result.quote) highlightInExtract(content, result.quote, result.flag, result.rule_id);
+    const items = [];
+    for (const result of sorted) {
+      const qs = (result.quotes && result.quotes.length)
+        ? result.quotes : (result.quote ? [result.quote] : []);
+      for (const q of qs) items.push({ q, flag: result.flag, rule: result.rule_id });
     }
+    items.sort((a, b) => b.q.length - a.q.length);
+    for (const it of items) highlightInExtract(content, it.q, it.flag, it.rule);
   }
 
   for (const result of sorted) {

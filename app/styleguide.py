@@ -62,6 +62,9 @@ class StyleGuideConfig:
     # clear_UI = yes: keep only the just-run report in the UI selector (prunes
     # the index; run data on disk is left untouched).
     clear_ui: bool = False
+    # number of parallel API calls for the serial (non-batching) loops; 1 =
+    # serial. Higher cuts wall-clock; too high may hit Anthropic rate limits.
+    concurrency: int = 8
     # document_type -> max allowed pages (config page_limit column)
     page_limits: dict[str, int] = field(default_factory=dict)
     # tag -> max output tokens for that AI step (config max_token column)
@@ -248,6 +251,9 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         max_report_cost_eur=(int(first("max_report_cost_eur"))
                              if first("max_report_cost_eur").isdigit() else 0),
         clear_ui=first("clear_ui").lower() == "yes",
+        concurrency=(int(first("concurrency"))
+                     if first("concurrency").isdigit() and int(first("concurrency")) > 0
+                     else 8),
         page_limits=page_limits,
         step_max_tokens=step_max_tokens,
         sentence_word_limits=sentence_word_limits,

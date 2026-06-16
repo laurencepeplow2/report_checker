@@ -176,6 +176,14 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("automated_checks update skipped: %s", exc)
 
+    # always (re)build the self-contained, read-only shareable HTML
+    try:
+        from export_report import export_one
+        rd = run_dir(doc_id)
+        export_one(rd / "test_run.json", rd / "analysis.json")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("shareable export skipped: %s", exc)
+
 
 if __name__ == "__main__":
     main()

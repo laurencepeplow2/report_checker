@@ -154,6 +154,30 @@ def neighbour_context(chunks: list[Chunk], chunk: Chunk) -> tuple[str, str]:
     return before, after
 
 
+def _concurrent_map(items, fn, workers):
+    """Yield (item, fn(item)) over items using up to `workers` threads (1 =
+    serial). The API calls run in the threads; the caller consumes results on
+    the main thread, so the shared result dicts need no locks. An
+    anthropic.APIError on an item yields (item, None). Order is not preserved
+    when workers > 1."""
+    if workers <= 1:
+        for it in items:
+            try:
+                yield it, fn(it)
+            except anthropic.APIError:
+                yield it, None
+        return
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fn, it): it for it in items}
+        for fut in as_completed(futures):
+            it = futures[fut]
+            try:
+                yield it, fut.result()
+            except anthropic.APIError:
+                yield it, None
+
+
 def main() -> None:
     log_path = setup_logging("test_run")
 
@@ -337,17 +361,22 @@ def run_for_doc(
             results[(chunk.chunk_id, rule.rule_id)] = \
                 parse_check_message(messages.get(f"chk-{i}"))
     elif work:
-        for done, (chunk, rule) in enumerate(work, start=1):
-            try:
-                res = run_check(client, model, severity, rule, chunk, config)
-            except anthropic.APIError as exc:
-                log.warning("  %s x %s -> API error (%s); skipping this check",
-                            chunk.chunk_id, rule.rule_id, type(exc).__name__)
+        workers = config.concurrency
+        done = 0
+        for (chunk, rule), res in _concurrent_map(
+                work, lambda cr: run_check(client, model, severity, cr[1], cr[0], config),
+                workers):
+            done += 1
+            if res is None:
+                log.warning("  %s x %s -> API error; skipping this check",
+                            chunk.chunk_id, rule.rule_id)
                 continue
             results[(chunk.chunk_id, rule.rule_id)] = res
             spent_usd += cost_for(model, res.input_tokens, res.output_tokens)
             log.info("  %s x %s -> %s", chunk.chunk_id, rule.rule_id, res.flag)
-            if over_cap():
+            # live cost cap only applies serially; concurrently the in-flight
+            # calls can't be cleanly halted, so the pre-run estimate is the guard
+            if workers <= 1 and over_cap():
                 stopped_early = True
                 log.warning("Hit cost cap EUR %d (spent ~EUR %.2f) - stopping "
                             "AI after %d/%d flag checks; writing partial "
@@ -432,14 +461,15 @@ def run_for_doc(
             for i, (c, r) in enumerate(verify_work):
                 verdicts[(c.chunk_id, r.rule_id)] = parse_verify_message(msgs.get(f"vf-{i}"))
         else:
-            for c, r in verify_work:
-                try:
-                    verdicts[(c.chunk_id, r.rule_id)] = \
-                        run_verification(client, verify_model, r, c, config)
-                except anthropic.APIError as exc:
-                    log.warning("  verify %s x %s -> API error (%s); leaving "
-                                "unverified", c.chunk_id, r.rule_id,
-                                type(exc).__name__)
+            for (c, r), v in _concurrent_map(
+                    verify_work,
+                    lambda cr: run_verification(client, verify_model, cr[1], cr[0], config),
+                    config.concurrency):
+                if v is None:
+                    log.warning("  verify %s x %s -> API error; leaving "
+                                "unverified", c.chunk_id, r.rule_id)
+                    continue
+                verdicts[(c.chunk_id, r.rule_id)] = v
         # attach to the AI rows, validating the quote is really in the text
         text_by_chunk = {c.chunk_id: c.text for c in sample}
         confirmed = refuted = 0
@@ -506,15 +536,15 @@ def run_for_doc(
                 suggestions[chunk.chunk_id] = restore_links(
                     chunk.formatted_text or chunk.text, rewrite.suggestion)
     else:
-        for chunk, breached in rewrite_work:
+        def _do_rewrite(cb):
+            chunk, breached = cb
             before, after = neighbour_context(sample, chunk)
-            try:
-                rewrite = run_rewrite(client, rewrite_model, breached, chunk,
-                                      config, context_before=before,
-                                      context_after=after)
-            except anthropic.APIError as exc:
-                log.warning("  rewrite %s -> API error (%s); skipping",
-                            chunk.chunk_id, type(exc).__name__)
+            return run_rewrite(client, rewrite_model, breached, chunk, config,
+                               context_before=before, context_after=after)
+        for (chunk, breached), rewrite in _concurrent_map(
+                rewrite_work, _do_rewrite, config.concurrency):
+            if rewrite is None:
+                log.warning("  rewrite %s -> API error; skipping", chunk.chunk_id)
                 continue
             total_in += rewrite.input_tokens
             total_out += rewrite.output_tokens
@@ -647,6 +677,19 @@ def run_for_doc(
         write_automated_checks(doc_id, config)
     except Exception as exc:  # noqa: BLE001
         log.warning("automated_checks update skipped: %s", exc)
+
+    _export_share(doc_id)
+
+
+def _export_share(doc_id: str) -> None:
+    """Always (re)build the self-contained, read-only shareable HTML for this
+    report - no server, no edit functionality. Best-effort."""
+    try:
+        from export_report import export_one
+        rd = run_dir(doc_id)
+        export_one(rd / "test_run.json", rd / "analysis.json")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("shareable export skipped: %s", exc)
 
 
 if __name__ == "__main__":

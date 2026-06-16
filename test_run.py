@@ -31,7 +31,8 @@ from app.check_engine import (
     build_check_params, build_rewrite_params, build_system, build_user_text,
     build_verify_params, cost_for, estimate_cost, estimate_run_cost,
     parse_check_message, parse_rewrite_message, parse_verify_message,
-    run_batch, run_check, run_rewrite, run_verification, usd_to_eur,
+    restore_links, run_batch, run_check, run_rewrite, run_verification,
+    usd_to_eur,
 )
 from app.checks import post_run_checks, preflight
 from app.docs_parser import Chunk, parse_document
@@ -479,7 +480,8 @@ def run_for_doc(
             tok["rewrite"][0] += rewrite.input_tokens
             tok["rewrite"][1] += rewrite.output_tokens
             if rewrite.suggestion:
-                suggestions[chunk.chunk_id] = rewrite.suggestion
+                suggestions[chunk.chunk_id] = restore_links(
+                    chunk.formatted_text or chunk.text, rewrite.suggestion)
     else:
         for chunk, breached in rewrite_work:
             before, after = neighbour_context(sample, chunk)
@@ -495,7 +497,8 @@ def run_for_doc(
             total_out += rewrite.output_tokens
             tok["rewrite"][0] += rewrite.input_tokens
             tok["rewrite"][1] += rewrite.output_tokens
-            suggestions[chunk.chunk_id] = rewrite.suggestion
+            suggestions[chunk.chunk_id] = restore_links(
+                chunk.formatted_text or chunk.text, rewrite.suggestion)
             log.info("  rewrite %s (%d breached rules) -> %d chars",
                      chunk.chunk_id, len(breached), len(rewrite.suggestion))
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,6 +236,39 @@ def _rule_block(rule: Rule) -> str:
     if rule.example:
         block += f"\nExample: {rule.example}"
     return block
+
+
+_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+
+
+def restore_links(original_formatted: str, suggestion: str) -> str:
+    """Re-insert hyperlinks the rewrite dropped. For each [label](url) in the
+    original extract, if the suggestion still contains that exact anchor text
+    as a standalone, unlinked phrase, wrap it back into the markdown link.
+
+    Conservative on purpose: it only restores when the same anchor text is
+    present (not reworded) and not already linked - so it never invents or
+    moves a link. A reworded anchor is left alone (the longer-term fix is to
+    give the model the links explicitly and have it preserve them)."""
+    if not original_formatted or not suggestion:
+        return suggestion
+    seen: set[tuple[str, str]] = set()
+    for label, url in _LINK_RE.findall(original_formatted):
+        if (label, url) in seen:
+            continue
+        seen.add((label, url))
+        if f"]({url})" in suggestion:      # this url is already linked somewhere
+            continue
+        if f"[{label}]" in suggestion:     # this anchor is already wrapped
+            continue
+        # the anchor text present as a standalone phrase (not inside a word)?
+        m = re.search(r"(?<![A-Za-z0-9])" + re.escape(label) + r"(?![A-Za-z0-9])",
+                      suggestion)
+        if not m:
+            continue
+        i, j = m.span()
+        suggestion = f"{suggestion[:i]}[{label}]({url}){suggestion[j:]}"
+    return suggestion
 
 
 def _chunk_body(chunk: Chunk) -> str:

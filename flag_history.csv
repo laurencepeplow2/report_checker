@@ -1,34 +1,34 @@
 ﻿rule_id,category,rule,test_report (r),test_report (a),Passenger rights (r),Passenger rights (a)
-rule-002,,"Write chart titles as a finding that states the main message of the chart, not as a neutral description of the topic.",0,0,1,0
+rule-002,,"Write chart titles as a finding that states the main message of the chart, not as a neutral description of the topic.",0,0,2,0
 rule-003,,"Never label, caption or number charts, graphs or figures with ""Figure 1"", ""Figure 2"", etc.",0,0,0,0
-rule-004,,The title should have a key message not just describe the chart.,3,0,7,3
+rule-004,,The title should have a key message not just describe the chart.,3,0,6,5
 rule-006,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",1,1,,
-rule-007,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",0,2,8,7
-rule-008,,Do not put scenario descriptions or explanations in chart footers; incorporate them into the chart's legend or annotations instead.,0,1,4,2
+rule-007,,"Keep chart footers to a maximum of two lines, ideally one line, by shortening references and using superscript symbols where needed.",0,2,5,10
+rule-008,,Do not put scenario descriptions or explanations in chart footers; incorporate them into the chart's legend or annotations instead.,0,1,4,1
 rule-009,,"Never write the organisation's full name ""Transport & Environment"" in any publication, including citations; always write ""T&E"".",0,0,,
 rule-010,,"Never write the organisation's full name ""Transport & Environment"" in any publication, including citations; always write ""T&E"".",0,0,0,0
-rule-011,,"Use short, crisp paragraphs so that essential points are not lost in long documents.",5,9,16,35
+rule-011,,"Use short, crisp paragraphs so that essential points are not lost in long documents.",5,9,16,34
 rule-013,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,1,5,,
-rule-014,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,3,5,21,40
-rule-015,,"Write persuasively but not shouty: avoid superlatives, emotional language and hyperbole, and rely on objective, clear text.",2,13,7,26
-rule-016,,"Write in the active voice rather than the passive voice, unless the active phrasing is awkward.",2,8,10,38
+rule-014,,Remove waffle: replace overly formal language and delete unnecessary words or phrases.,3,5,25,40
+rule-015,,"Write persuasively but not shouty: avoid superlatives, emotional language and hyperbole, and rely on objective, clear text.",2,13,7,24
+rule-016,,"Write in the active voice rather than the passive voice, unless the active phrasing is awkward.",2,8,12,31
 rule-017,,"Refer to the organisation as ""we"" and ""our"" in publications, not T&E by name.",1,0,0,0
 rule-018,,"After a long sentence that explains or elaborates an idea, follow it with a short sentence to aid readability.",1,13,,
 rule-019,,"After a long sentence that explains or elaborates an idea, follow it with a short sentence to aid readability.",1,15,,
 rule-020,,Keep sentences short: ideally less than 13 words and definitely less than 17 words.,30,2,67,4
-rule-021,,Use the present simple tense by default if in doubt.,2,3,9,11
+rule-021,,Use the present simple tense by default if in doubt.,2,3,7,12
 rule-030,,"Front-load information: state the main result or conclusion in the first sentence, then elaborate and fill in the gaps; assume the reader will not read past the first sentence.",13,15,49,24
-rule-031,,Express one idea per sentence.,19,13,53,17
+rule-031,,Express one idea per sentence.,19,13,60,12
 rule-032,,Cover one theme per paragraph.,6,9,25,17
-rule-033,,"Do not use bold text or underlining for emphasis (especially not combined); use bullet points or reserved space on the page instead. Bold may be used very sparingly and never for whole sentences - if a whole sentence deserves bold, it should be a (sub)section title.",1,1,37,3
+rule-033,,"Do not use bold text or underlining for emphasis (especially not combined); use bullet points or reserved space on the page instead. Bold may be used very sparingly and never for whole sentences - if a whole sentence deserves bold, it should be a (sub)section title.",1,1,36,4
 rule-045,,"Use unit prefixes with the correct case: uppercase ""M"" means mega (million); lowercase ""m"" means metre.",1,0,0,0
 rule-046,,"Use ""tonne"" (symbol ""t"") for 1,000 kg; never use ""ton"", which in the US means 2,000 pounds.",0,0,0,0
-rule-047,,"Put a space between the number and its measurement unit, but no space before symbols such as degrees or percent.",2,3,7,1
+rule-047,,"Put a space between the number and its measurement unit, but no space before symbols such as degrees or percent.",2,3,4,4
 rule-049,,"Write chemical compounds with subscripts and chemical elements with their periodic-table symbols, and put a space between a unit and a compound.",5,2,0,0
-rule-050,,"Spell out whole numbers below ten in words, unless the number is paired with a measurement unit; use numerals for 10 to 999,999.",6,1,10,2
-rule-051,,"Use a comma as the thousands separator only for numbers of five or more digits (i.e. above 9999), and always use a full stop as the decimal point.",5,1,1,0
-rule-052,,"Never start a sentence with a numeral: spell the number out, or better, restructure the sentence (especially for decimals or unrounded numbers).",4,3,4,2
+rule-050,,"Spell out whole numbers below ten in words, unless the number is paired with a measurement unit; use numerals for 10 to 999,999.",6,1,8,4
+rule-051,,"Use a comma as the thousands separator only for numbers of five or more digits (i.e. above 9999), and always use a full stop as the decimal point.",5,1,0,1
+rule-052,,"Never start a sentence with a numeral: spell the number out, or better, restructure the sentence (especially for decimals or unrounded numbers).",4,3,1,5
 rule-053,,"Never abbreviate millions or billions as ""mln"", ""bln"" or similar; write the word out in full.",1,0,0,0
 rule-054,,"Use SI prefixes (k, M, T) with technical units.",1,0,0,0
 rule-055,,"When listing several amounts, repeat the scale word with every figure; do not let one scale word cover the whole list.",4,0,1,1
-rule-056,,"Use the symbols â‚¬ and Â£ as prefixes attached to numerals; in running text without numerals, write ""euro""/""euros"" or ""pounds"" in lowercase.",1,1,1,0
+rule-056,,"Use the symbols â‚¬ and Â£ as prefixes attached to numerals; in running text without numerals, write ""euro""/""euros"" or ""pounds"" in lowercase.",1,1,0,0

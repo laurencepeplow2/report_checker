@@ -319,8 +319,10 @@ def run_for_doc(
     if skipped_number:
         log.info("number_check skipped %d (chunk, rule) pairs with no number",
                  skipped_number)
-    log.info("%d checks to run (%s)", len(work),
-             "Batches API, 50%% token cost" if config.batching else "serial")
+    run_mode = ("Batches API, 50% token cost" if config.batching
+                else f"{config.concurrency} parallel" if config.concurrency > 1
+                else "serial")
+    log.info("%d checks to run (%s)", len(work), run_mode)
 
     # ---- cost guard: estimate before spending, cap while spending ------
     verify_model = config.model_for("verification")

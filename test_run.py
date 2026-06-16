@@ -457,6 +457,19 @@ def run_for_doc(
             refuted += v.verdict == "refuted"
         log.info("Verification: %d confirmed, %d refuted", confirmed, refuted)
 
+    # ---- deterministic highlight for the bold/underline rule ----------
+    # The verifier rarely quotes the emphasised span, so pin it from the
+    # formatting itself - the card then highlights only the bold/underlined
+    # text (longest span = the main offender).
+    from app.coded_checks import emphasis_spans, is_emphasis_rule
+    fmt_by_chunk = {c.chunk_id: (c.formatted_text or c.text) for c in sample}
+    for row in rows:
+        if (row["flag"] in ("r", "a") and row.get("verdict") != "refuted"
+                and is_emphasis_rule(row.get("rule", ""))):
+            spans = emphasis_spans(fmt_by_chunk.get(row["chunk_id"], ""))
+            if spans:
+                row["quote"] = max(spans, key=len)
+
     # ---- second loop: rewrites for breached non-figure chunks ---------
     # (an AI call, so skipped once the cost cap is reached / AI was skipped)
     suggestions: dict[str, str] = {}

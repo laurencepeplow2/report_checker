@@ -21,6 +21,29 @@ _WORD_RE = re.compile(r"[a-z]+")
 # "Transport & Environment" / "Transport and Environment" in full
 ORG_FULL_NAME_RE = re.compile(r"Transport\s*(?:&|and)\s*Environment", re.IGNORECASE)
 
+# Bold (**...**) and underline (<u>...</u>) spans in a chunk's formatted_text.
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_ULINE_RE = re.compile(r"<u>(.+?)</u>", re.DOTALL)
+_MARKUP_RE = re.compile(r"\*\*|\*|<u>|</u>|\[|\]\([^)]*\)")
+
+
+def is_emphasis_rule(rule_text: str) -> bool:
+    """The 'don't use bold/underlining for emphasis' rule."""
+    t = (rule_text or "").lower()
+    return "bold" in t or "underlin" in t
+
+
+def emphasis_spans(formatted_text: str) -> list[str]:
+    """The bold / underlined runs in the extract, as plain text - the exact
+    spans the emphasis rule is about, so the card can highlight just them."""
+    raw = _BOLD_RE.findall(formatted_text or "") + _ULINE_RE.findall(formatted_text or "")
+    spans = []
+    for s in raw:
+        s = _MARKUP_RE.sub("", s).strip()  # drop any nested markup
+        if any(ch.isalnum() for ch in s):
+            spans.append(s)
+    return spans
+
 
 def contains_number(text: str) -> bool:
     """True if the text has a numeral (1, 100.1, 10,000) or a number word."""

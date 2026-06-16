@@ -525,9 +525,14 @@ function render() {
   el("breach-count").textContent = String(sorted.length);
   el("breach-count").classList.toggle("none", sorted.length === 0);
 
-  // highlight the offending text (verifier / coded quote) inside the extract
+  // highlight the offending text (verifier / coded quote) inside the extract.
+  // Apply longest quotes first: a short quote highlighted first splits a text
+  // node and stops a longer overlapping quote (e.g. a whole bold sentence)
+  // from matching.
   if (!chunk.image) {
-    for (const result of sorted) {
+    const byQuoteLen = [...sorted].sort(
+      (a, b) => (b.quote || "").length - (a.quote || "").length);
+    for (const result of byQuoteLen) {
       if (result.quote) highlightInExtract(content, result.quote, result.flag, result.rule_id);
     }
   }

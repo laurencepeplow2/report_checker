@@ -113,11 +113,29 @@ class ParsedDocument:
         return [c for c in self.chunks if c.input_level == level]
 
 
+# Google Docs inserts placeholder chars for inline objects (images, equations,
+# footnote anchors). On their own they aren't text - a paragraph that is only
+# one of these would otherwise become a 1-char chunk and be sent to the AI as
+# an empty extract. Strip them (also zero-width spaces) everywhere.
+_NONTEXT_RE = re.compile("[￼�​‌‍﻿]")
+
+
+def _clean_text(s: str) -> str:
+    return _NONTEXT_RE.sub("", s)
+
+
+def _has_content(s: str) -> bool:
+    """True if the text has at least one letter or digit. Skips content-free
+    paragraphs - lone em-dash dividers, bullets, stray placeholder chars -
+    which otherwise reach the AI as an empty extract ("I'm waiting for...")."""
+    return any(ch.isalnum() for ch in s)
+
+
 def _paragraph_text(paragraph: dict) -> str:
-    return "".join(
+    return _clean_text("".join(
         el.get("textRun", {}).get("content", "")
         for el in paragraph.get("elements", [])
-    )
+    ))
 
 
 def _run_markup(run: dict) -> str:
@@ -521,7 +539,7 @@ def _parse_tab(
             fig_index += 1
             sub_figures.append(figure)
 
-        if text:
+        if _has_content(text):
             formatted = _paragraph_formatted(paragraph).strip()
             align = paragraph.get("paragraphStyle", {}).get("alignment", "")
             chunks.append(Chunk(

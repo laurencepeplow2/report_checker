@@ -67,7 +67,14 @@ async function load() {
         sel.appendChild(opt);
       }
       const saved = localStorage.getItem("rc-report");
-      if (saved && reportList.some((r) => r.doc_id === saved)) sel.value = saved;
+      if (saved && reportList.some((r) => r.doc_id === saved)) {
+        sel.value = saved;
+      } else {
+        // default to the most recently run report (ISO timestamps sort lexically)
+        const latest = [...reportList].sort(
+          (a, b) => (b.updated || "").localeCompare(a.updated || ""))[0];
+        if (latest) sel.value = latest.doc_id;
+      }
       sel.addEventListener("change", () => {
         localStorage.setItem("rc-report", sel.value);
         loadReport(sel.value);
@@ -112,25 +119,30 @@ async function loadReport(doc) {
   // a breach counts only if it's red/amber AND not refuted by the second pass
   const isLiveBreach = (r) =>
     (r.flag === "r" || r.flag === "a") && r.verdict !== "refuted";
+  // Chapter of a chunk: the report's numbered section heading. For a
+  // tab-per-section doc that's the tab title ("1. Value"); for a single-tab
+  // doc it's the top H1 in the heading path ("1. Introduction"). Stored on
+  // each chunk as _chapter so the filter can use it.
+  const multiTab = new Set(runData.chunks.map((c) => c.tab)).size > 1;
+  const chapterOf = (c) => multiTab
+    ? (c.tab || "")
+    : ((c.heading_path && c.heading_path[0]) || c.section || c.tab || "");
   allChunks = runData.chunks
-    .map((c) => ({ ...c, breaches: c.results.filter(isLiveBreach) }))
+    .map((c) => ({ ...c, breaches: c.results.filter(isLiveBreach), _chapter: chapterOf(c) }))
     .filter((c) => c.breaches.length > 0);
 
-  // Section filter: the canonical sections (cover / executive summary /
-  // main text / recommendations / annex / foreward) present among the
-  // flagged chunks, in document order. Works for both tab-per-section and
-  // single-tab docs (where one tab would otherwise be the only option).
+  // Section filter: the report's chapters (numbered section headings) present
+  // among the flagged chunks, in document order.
   const sectionSelect = el("section-select");
   while (sectionSelect.options.length > 1) sectionSelect.remove(1);
   sectionSelect.value = "all";
-  const titleCase = (s) => s.replace(/\b\w/g, (m) => m.toUpperCase());
   const seen = new Set();
   for (const c of allChunks) {
-    if (c.section && !seen.has(c.section)) {
-      seen.add(c.section);
+    if (c._chapter && !seen.has(c._chapter)) {
+      seen.add(c._chapter);
       const opt = document.createElement("option");
-      opt.value = c.section;
-      opt.textContent = titleCase(c.section);
+      opt.value = c._chapter;
+      opt.textContent = c._chapter;
       sectionSelect.appendChild(opt);
     }
   }
@@ -191,7 +203,7 @@ function applyFilter() {
   const section = el("section-select").value;
   view = allChunks.filter((c) =>
     (level === "all" || c.input_level === level) &&
-    (section === "all" || c.section === section)
+    (section === "all" || c._chapter === section)
   );
   index = 0;
   render();
@@ -537,8 +549,10 @@ function render() {
     suggestion.classList.remove("empty");
     diffToggle.hidden = false;
     diffToggle.textContent = showDiff ? "Hide changes" : "Show changes";
+    // render the rewrite's markup (links, bold, italic, underline) like the
+    // extract - otherwise a [label](url) link shows as raw text with a long URL
     if (showDiff) renderDiff(suggestion, chunk.text, chunk.suggestion);
-    else suggestion.textContent = chunk.suggestion;
+    else suggestion.innerHTML = formattedHtml(chunk.suggestion);
     el("copy-btn").hidden = false;
   } else {
     suggestion.classList.add("empty");

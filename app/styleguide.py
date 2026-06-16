@@ -59,6 +59,9 @@ class StyleGuideConfig:
     # If the pre-run estimate exceeds it, no AI calls are made; if a live run
     # reaches it, the run stops gracefully and writes what it has so far.
     max_report_cost_eur: int = 0
+    # clear_UI = yes: keep only the just-run report in the UI selector (prunes
+    # the index; run data on disk is left untouched).
+    clear_ui: bool = False
     # document_type -> max allowed pages (config page_limit column)
     page_limits: dict[str, int] = field(default_factory=dict)
     # tag -> max output tokens for that AI step (config max_token column)
@@ -244,6 +247,7 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
         max_pages=int(first("max_pages")) if first("max_pages").isdigit() else 0,
         max_report_cost_eur=(int(first("max_report_cost_eur"))
                              if first("max_report_cost_eur").isdigit() else 0),
+        clear_ui=first("clear_ui").lower() == "yes",
         page_limits=page_limits,
         step_max_tokens=step_max_tokens,
         sentence_word_limits=sentence_word_limits,

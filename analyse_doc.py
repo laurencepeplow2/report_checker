@@ -160,7 +160,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
         ),
         encoding="utf-8",
     )
-    update_index(doc_id, parsed.title,
+    update_index(doc_id, parsed.title, clear_others=config.clear_ui,
                  broken_links=links["broken_count"],
                  story_flag=story_flag.get("flag", ""))
     log.info("-> %s", out)

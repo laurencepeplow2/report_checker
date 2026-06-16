@@ -30,8 +30,14 @@ def _load_index() -> list[dict]:
     return []
 
 
-def update_index(doc_id: str, title: str, **fields) -> None:
-    """Merge fields into the report's index entry (creates it if new)."""
+def update_index(doc_id: str, title: str, clear_others: bool = False,
+                 **fields) -> None:
+    """Merge fields into the report's index entry (creates it if new).
+
+    clear_others (config clear_UI): keep only this report in the index, so the
+    UI selector shows just the newest run. Run data on disk is left untouched -
+    this only prunes the index that drives the selector.
+    """
     index = _load_index()
     entry = next((e for e in index if e.get("doc_id") == doc_id), None)
     if entry is None:
@@ -40,6 +46,8 @@ def update_index(doc_id: str, title: str, **fields) -> None:
     entry["title"] = title
     entry["updated"] = datetime.now().isoformat(timespec="seconds")
     entry.update(fields)
+    if clear_others:
+        index = [entry]
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     INDEX_PATH.write_text(json.dumps(index, indent=2, ensure_ascii=False),
                           encoding="utf-8")

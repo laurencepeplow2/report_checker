@@ -612,7 +612,8 @@ def run_for_doc(
         "total_in": total_in, "total_out": total_out, "total_cost": round(cost_total, 4),
     })
 
-    update_index(doc_id, parsed.title, mode=config.mode, severity=severity,
+    update_index(doc_id, parsed.title, clear_others=config.clear_ui,
+                 mode=config.mode, severity=severity,
                  checks=len(rows), red=flags.count("r"), amber=flags.count("a"),
                  refuted=refuted, cost=round(cost_total, 4))
     log.info("Flag history -> %s | cost log -> %s",

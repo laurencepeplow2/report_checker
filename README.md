@@ -138,6 +138,14 @@ the pipeline runs on Windows.
   single self-contained, read-only file (data + images + logo inlined) to send
   to anyone; no server or setup needed (commit-edit is disabled in exports).
 
+`build_share.py` assembles `share/report_checker/` — one self-contained folder
+(code + `service_account.json` + `.env` + offline dependency wheels + a
+`START_EDITOR.bat` launcher) to hand a colleague so they can run the full tool
+**including live editing**. They need only Windows + Python; unzip and
+double-click `START_EDITOR.bat`. (Contrast `export_report.py`, which is a
+read-only HTML with editing disabled.) The folder holds secrets — send it over
+a secure channel; `share/` is gitignored.
+
 `ingest.py` is the standalone phase-1 segmenter (writes `data/chunks.json`);
 `extract_figure_text.py` writes `data/figure_text.csv` (figure header /
 subheader / legend / footer text + line counts).

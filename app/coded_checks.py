@@ -52,6 +52,14 @@ def contains_number(text: str) -> bool:
     return any(w in NUMBER_WORDS for w in _WORD_RE.findall(text.lower()))
 
 
+_LINK_MARKUP_RE = re.compile(r"\[[^\]]+\]\(https?://", re.IGNORECASE)
+
+
+def contains_hyperlink(formatted_text: str) -> bool:
+    """True if the chunk's formatted text carries a hyperlink ([label](url))."""
+    return bool(_LINK_MARKUP_RE.search(formatted_text or ""))
+
+
 def org_full_name_flag(text: str) -> tuple[str, str, str]:
     """Flag use of the organisation's full name (should always be "T&E").
     Returns (flag, detail, quote)."""

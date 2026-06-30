@@ -102,10 +102,10 @@ def preflight(config=None, rules=None, require_api_key: bool = True,
         if not ai_rules:
             results.append(Check("style rules", "FAIL", "no active AI rules (include=yes)"))
         else:
-            no_example = sum(1 for r in ai_rules if not r.example)
+            no_example = sum(1 for r in ai_rules if not r.right and not r.wrong)
             detail = f"{len(ai_rules)} AI, {len(rules) - len(ai_rules)} coded"
             if no_example:
-                detail += f"; {no_example} without an Example:"
+                detail += f"; {no_example} without a right/wrong example"
             levels = {r.input_level for r in ai_rules}
             results.append(Check("style rules", "PASS", f"{detail}; levels: {sorted(levels)}"))
 

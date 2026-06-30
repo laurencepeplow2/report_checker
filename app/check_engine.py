@@ -233,8 +233,10 @@ FORMATTING_NOTE = (
 
 def _rule_block(rule: Rule) -> str:
     block = f"Rule:\n{rule.text}"
-    if rule.example:
-        block += f"\nExample: {rule.example}"
+    if rule.right:
+        block += f"\nExample that COMPLIES: {rule.right}"
+    if rule.wrong:
+        block += f"\nExample that BREACHES: {rule.wrong}"
     return block
 
 

@@ -195,6 +195,30 @@ def sentence_length_distribution(parsed: ParsedDocument) -> list[dict]:
             for (label, _lo, _hi, band), c in zip(SENTENCE_BUCKETS, counts)]
 
 
+# Letters-per-word buckets (the last band is 11+; 9-10 / 10+ would overlap).
+WORD_LENGTH_BUCKETS = [
+    ("1-4", 1, 4), ("5-6", 5, 6), ("7-8", 7, 8), ("9-10", 9, 10),
+    ("11+", 11, 10 ** 9),
+]
+
+
+def word_length_distribution(parsed: ParsedDocument) -> list[dict]:
+    """Distribution of word lengths (letters per word) across every paragraph,
+    bucketed. No AI."""
+    counts = [0] * len(WORD_LENGTH_BUCKETS)
+    for chunk in parsed.chunks:
+        if chunk.input_level != "paragraph":
+            continue
+        for word in WORD_RE.findall(chunk.text):
+            n = len(word)
+            for i, (_label, lo, hi) in enumerate(WORD_LENGTH_BUCKETS):
+                if lo <= n <= hi:
+                    counts[i] += 1
+                    break
+    return [{"label": label, "count": c}
+            for (label, _lo, _hi), c in zip(WORD_LENGTH_BUCKETS, counts)]
+
+
 # A real section/sub-section header starts with a number ("1. Value",
 # "2.3 Lithium") or a roman-numeral compound used in the annex ("I.1
 # Production and sales"). Heading-styled key-message statements and lines

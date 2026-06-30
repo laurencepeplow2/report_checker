@@ -120,12 +120,14 @@ class StyleGuideConfig:
 class Rule:
     rule_id: str            # row-derived, e.g. "rule-002" (sheet row number)
     category: str           # no longer in the sheet; kept for output compat
-    text: str               # the rule itself ("Rule:" prefix stripped)
+    text: str               # the rule itself (sheet "rule" column)
     input_level: str        # normalised chunk level: paragraph | figure | subsection
-    example: str = ""       # "Example:" part - fed to the AI, hidden in the UI
+    right: str = ""         # a correct example (sheet "right" column) - fed to AI
+    wrong: str = ""         # a breaching example (sheet "wrong" column) - fed to AI
     figure_type: str = ""   # header | sub_header | footer | whole_image | ""
     coded: bool = False     # include_AI_check = coded: deterministic code check
-    number_check: bool = False  # only run on paragraphs that contain a number
+    number_check: bool = False    # only run on paragraphs that contain a number
+    hyperlink_rule: bool = False  # only run on chunks that contain a hyperlink
     rule_tag: str = ""      # 2-3 word summary of the rule (sheet rule_tag column)
     document_types: set[str] = field(default_factory=set)
     sections: set[str] = field(default_factory=set)
@@ -261,31 +263,17 @@ def load_config(sheet_id: str | None = None) -> StyleGuideConfig:
     )
 
 
-# Rules are written as "Rule: <the rule> Example: <a breach example>".
-RULE_EXAMPLE_RE = re.compile(
-    r"^\s*(?:Rule\s*:)?\s*(?P<rule>.*?)(?:\s*Examples?\s*:\s*(?P<example>.*))?\s*$",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-def split_rule_example(raw: str) -> tuple[str, str]:
-    match = RULE_EXAMPLE_RE.match(" ".join(raw.split()))
-    if not match:
-        return raw.strip(), ""
-    return (match.group("rule") or "").strip(), (match.group("example") or "").strip()
-
-
 def load_rules(sheet_id: str | None = None) -> list[Rule]:
     """Read the TE_style_rules tab.
 
     Column layout (by position):
       A include_AI_check (yes / no / coded) | B rule_tag (2-3 word summary) |
-      C rules ("Rule: ... Example: ...") | D level |
-      E figure_type (header/sub_header/footer/whole_image) |
-      F number_check (yes = only run on paragraphs with a number) | G (spacer) |
-      H report | I briefing | J pr |
-      K cover | L (spacer) | M executive summary | N recommendations |
-      O main text | P annex | Q foreward (sic - sheet spelling)
+      C rule | D right (correct example) | E wrong (breaching example) |
+      F level | G figure_type (header/sub_header/footer/whole_image) |
+      H number_check | I hyperlink_rule | J (spacer) |
+      K report | L briefing | M pr |
+      N cover | O (spacer) | P executive summary | Q recommendations |
+      R main text | S annex | T foreward (sic - sheet spelling)
 
     include_AI_check values:
       yes   — rule is checked via the AI loop
@@ -301,10 +289,10 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
     if len(values) < 2:
         raise RuntimeError(f"'{RULES_TAB}' tab is empty or missing.")
 
-    doc_type_cols = {7: "report", 8: "briefing", 9: "pr"}
+    doc_type_cols = {10: "report", 11: "briefing", 12: "pr"}
     # "foreward" keeps the sheet's spelling so the section string matches
-    section_cols = {10: "cover", 12: "executive summary", 13: "recommendations",
-                    14: "main text", 15: "annex", 16: "foreward"}
+    section_cols = {13: "cover", 15: "executive summary", 16: "recommendations",
+                    17: "main text", 18: "annex", 19: "foreward"}
 
     rules: list[Rule] = []
     skipped: list[str] = []
@@ -312,27 +300,30 @@ def load_rules(sheet_id: str | None = None) -> list[Rule]:
         def cell(idx: int) -> str:
             return row[idx].strip().lower() if idx < len(row) else ""
 
+        def raw_cell(idx: int) -> str:
+            return row[idx].strip() if idx < len(row) else ""
+
         include = cell(0)
         if include not in ("yes", "coded", "n/a", "na"):
             continue
         coded = include != "yes"
-        rule_tag = (row[1].strip() if len(row) > 1 else "")  # keep original case
-        raw = (row[2].strip() if len(row) > 2 else "")
-        text, example = split_rule_example(raw)
-        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(3))
+        text = raw_cell(2)
+        level = RULE_LEVEL_TO_CHUNK_LEVEL.get(cell(5))
         if not text or level is None:
-            skipped.append(f"row {row_num}: missing rule text or bad level {cell(3)!r}")
+            skipped.append(f"row {row_num}: missing rule text or bad level {cell(5)!r}")
             continue
         rules.append(Rule(
             rule_id=f"rule-{row_num:03d}",
             category="",
             text=text,
             input_level=level,
-            example=example,
-            figure_type=cell(4).replace(" ", "_"),
+            right=raw_cell(3),
+            wrong=raw_cell(4),
+            figure_type=cell(6).replace(" ", "_"),
             coded=coded,
-            number_check=cell(5) == "yes",
-            rule_tag=rule_tag,
+            number_check=cell(7) == "yes",
+            hyperlink_rule=cell(8) == "yes",
+            rule_tag=raw_cell(1),
             document_types={name for idx, name in doc_type_cols.items() if cell(idx) == "yes"},
             sections={name for idx, name in section_cols.items() if cell(idx) == "yes"},
         ))

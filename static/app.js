@@ -732,6 +732,23 @@ function renderHealth(data) {
     }
   }
 
+  // Word-length distribution (letters per word, bucketed; no RAG band)
+  const wl = data.word_lengths || [];
+  const wlMax = wl.reduce((m, d) => Math.max(m, d.count), 1);
+  const wlBox = el("word-length-dist");
+  if (wlBox) {
+    wlBox.innerHTML = "";
+    for (const d of wl) {
+      const row = document.createElement("div");
+      row.className = "dist-row";
+      row.innerHTML = `<span class="lbl"></span>
+        <span class="bar-track"><span class="bar" style="width:${Math.round((d.count / wlMax) * 100)}%"></span></span>
+        <span class="n">${d.count}</span>`;
+      row.querySelector(".lbl").textContent = d.label;
+      wlBox.appendChild(row);
+    }
+  }
+
   // a finding's location → "heading · ≈ p.N · Open in Google Docs ↗"
   const hdoc = data.doc_id || "";
   const locNode = (loc) => {

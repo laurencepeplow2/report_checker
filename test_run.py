@@ -300,14 +300,17 @@ def run_for_doc(
     system_prompt = build_system(severity, config)
 
     # Work list: every applicable (chunk, AI rule) pair (coded rules are
-    # handled deterministically below, never sent to the AI). Rules marked
-    # number_check only run on paragraphs that actually contain a number.
-    from app.coded_checks import contains_number
+    # handled deterministically below, never sent to the AI). number_check
+    # rules only run on paragraphs with a number; hyperlink_rule rules only on
+    # chunks that contain a hyperlink (and those chunks carry the [label](url)
+    # markup to the AI, so it sees which words the link covers).
+    from app.coded_checks import contains_hyperlink, contains_number
     ai_rules = [r for r in rules if not r.coded]
     work: list[tuple[Chunk, object]] = []
-    skipped_number = 0
+    skipped_number = skipped_link = 0
     for chunk in sample:
         chunk_has_number = contains_number(chunk.text)
+        chunk_has_link = contains_hyperlink(chunk.formatted_text or "")
         for rule in ai_rules:
             if not rule.applies_to(chunk.input_level, parsed.document_type, chunk.section):
                 continue
@@ -315,10 +318,16 @@ def run_for_doc(
                     and not chunk_has_number:
                 skipped_number += 1
                 continue
+            if rule.hyperlink_rule and not chunk_has_link:
+                skipped_link += 1
+                continue
             work.append((chunk, rule))
     if skipped_number:
         log.info("number_check skipped %d (chunk, rule) pairs with no number",
                  skipped_number)
+    if skipped_link:
+        log.info("hyperlink_rule skipped %d (chunk, rule) pairs with no link",
+                 skipped_link)
     run_mode = ("Batches API, 50% token cost" if config.batching
                 else f"{config.concurrency} parallel" if config.concurrency > 1
                 else "serial")

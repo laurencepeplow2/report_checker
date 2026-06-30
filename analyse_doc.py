@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 from app.analysis import (
     check_links, figure_layout, formatting_checks, sentence_length_distribution,
-    story, word_frequency,
+    story, word_frequency, word_length_distribution,
 )
 from app.check_engine import run_message_flag, run_story_flag, run_word_flagging
 from app.checks import preflight
@@ -76,6 +76,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
 
     words = word_frequency(parsed)
     sentence_lengths = sentence_length_distribution(parsed)
+    word_lengths = word_length_distribution(parsed)
     headings = story(parsed)                       # displayed list
     story_arc = story(parsed, for_display=False)   # full arc for the AI verdict
     layout = figure_layout(parsed)
@@ -151,6 +152,7 @@ def analyse_for_doc(config: StyleGuideConfig, doc_id: str) -> None:
                 "links": links,
                 "word_frequency": words,
                 "sentence_lengths": sentence_lengths,
+                "word_lengths": word_lengths,
                 "story": headings,
                 "story_flag": story_flag,
                 "figure_layout": layout,

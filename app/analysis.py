@@ -68,6 +68,17 @@ PROBE_HEADERS = {
 }
 
 
+def classify_http_status(status: int) -> tuple[str, str]:
+    """Map an HTTP status code to a link (state, note). Bot-wall codes are
+    'unverified' (a human in a browser gets through); 4xx/5xx are 'broken';
+    anything else is 'ok'. Pure - no network - so it's unit-testable."""
+    if status in BOT_BLOCK_STATUSES:
+        return "unverified", "blocked by bot/cookie protection - open it manually"
+    if status >= 400:
+        return "broken", ""
+    return "ok", ""
+
+
 def check_links(parsed: ParsedDocument) -> dict:
     """HTTP-check every unique external link. No AI involved.
 
@@ -91,12 +102,8 @@ def check_links(parsed: ParsedDocument) -> dict:
                 )
                 status: int | str = resp.status_code
                 resp.close()
-                if status in BOT_BLOCK_STATUSES:
-                    return {"url": url, "status": status, "state": "unverified",
-                            "note": "blocked by bot/cookie protection - open it manually"}
-                if status >= 400:
-                    return {"url": url, "status": status, "state": "broken", "note": ""}
-                return {"url": url, "status": status, "state": "ok", "note": ""}
+                state, note = classify_http_status(status)
+                return {"url": url, "status": status, "state": state, "note": note}
             except requests.Timeout:
                 continue
             except requests.ConnectionError as exc:

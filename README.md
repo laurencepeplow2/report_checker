@@ -138,6 +138,14 @@ the pipeline runs on Windows.
   single self-contained, read-only file (data + images + logo inlined) to send
   to anyone; no server or setup needed (commit-edit is disabled in exports).
 
+`testing_run.py` is the development test harness: `python testing_run.py` runs
+~120 deterministic PASS/FAIL checks (no AI, no network) over synthetic
+fixtures with known outcomes — text cleaning, ingestion/word-count, section
+mapping, coded rules, rule loading + hyperlink/number routing, link
+classification, footers, distributions, the story arc, rewrites/links, and a
+loose figure-OCR check. It's not run per report; **extend it whenever code is
+added or changed** so it keeps genuinely finding regressions.
+
 `build_share.py` assembles `share/report_checker/` — one self-contained folder
 (code + `service_account.json` + `.env` + offline dependency wheels + a
 `START_EDITOR.bat` launcher) to hand a colleague so they can run the full tool

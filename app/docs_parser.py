@@ -258,6 +258,20 @@ def _download_image(uri: str, dest: Path) -> bool:
         return False
 
 
+def _nonempty_segments(segments: dict) -> int:
+    """Count footnote/footer segments that actually contain text. Google Docs
+    creates default (empty) footer objects, so empties don't count."""
+    count = 0
+    for seg in (segments or {}).values():
+        text = "".join(
+            _paragraph_text(el["paragraph"])
+            for el in seg.get("content", []) if "paragraph" in el
+        )
+        if text.strip():
+            count += 1
+    return count
+
+
 def parse_document(
     doc_id: str,
     allowed_types: list[str] | None = None,
@@ -276,20 +290,6 @@ def parse_document(
     column_width_pt = 0.0
     footnote_count = footer_count = 0
     order = 0
-
-    # footnotes / page footers live either top-level or per documentTab.
-    # Google Docs creates default (empty) footer objects, so count only
-    # those that actually contain text.
-    def _nonempty_segments(segments: dict) -> int:
-        count = 0
-        for seg in (segments or {}).values():
-            text = "".join(
-                _paragraph_text(el["paragraph"])
-                for el in seg.get("content", []) if "paragraph" in el
-            )
-            if text.strip():
-                count += 1
-        return count
 
     footnote_count += _nonempty_segments(doc.get("footnotes", {}))
     footer_count += _nonempty_segments(doc.get("footers", {}))

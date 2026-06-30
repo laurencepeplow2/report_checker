@@ -396,12 +396,11 @@ TEST_DOC_PARAS = [
 TEST_DOC_FOOTER = "Source: synthetic test footer line."
 
 
-def make_test_doc() -> str:
+def make_test_doc(title: str = "__report_checker_integration_test__") -> str:
     """Create a real Google Doc seeded with known structures; return its id."""
     from app.auth import docs_service
     docs = docs_service()
-    doc_id = docs.documents().create(
-        body={"title": "__report_checker_integration_test__"}).execute()["documentId"]
+    doc_id = docs.documents().create(body={"title": title}).execute()["documentId"]
 
     inserts, styles, idx = [], [], 1
     for level, runs in TEST_DOC_PARAS:

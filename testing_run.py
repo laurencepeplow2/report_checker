@@ -372,10 +372,45 @@ def section_K():
 SECTIONS = [section_A, section_B, section_C, section_D, section_E,
             section_F, section_G, section_H, section_I, section_J, section_K]
 
+TESTING_TAB = "testing_run"
+
+
+def upload_results(ts: str) -> None:
+    """Write the run to the master sheet's `testing_run` tab (created if it
+    doesn't exist). Best-effort - needs Editor access."""
+    from app.auth import sheets_service
+    from app.styleguide import find_sheet_id
+    total = len(RESULTS)
+    n_fail = sum(1 for r in RESULTS if not r[2])
+    overall = "FAIL" if n_fail else "PASS"
+    header = [
+        ["Testing run", "", f"updated {ts}"],
+        ["OVERALL", overall, f"{total - n_fail}/{total} passed, {n_fail} failed"],
+        ["", "", ""],
+        ["Section", "Check", "Result", "Detail"],
+    ]
+    body = [[sec, name, "PASS" if passed else "FAIL", detail]
+            for sec, name, passed, detail in RESULTS]
+    values = header + body
+
+    svc = sheets_service().spreadsheets()
+    sid = find_sheet_id()
+    meta = svc.get(spreadsheetId=sid).execute()
+    tabs = {s["properties"]["title"] for s in meta.get("sheets", [])}
+    if TESTING_TAB not in tabs:
+        svc.batchUpdate(spreadsheetId=sid, body={
+            "requests": [{"addSheet": {"properties": {"title": TESTING_TAB}}}]
+        }).execute()
+    svc.values().clear(spreadsheetId=sid, range=f"'{TESTING_TAB}'!A1:D2000").execute()
+    svc.values().update(spreadsheetId=sid, range=f"'{TESTING_TAB}'!A1",
+                        valueInputOption="RAW", body={"values": values}).execute()
+    print(f"\nUploaded {total} results to the '{TESTING_TAB}' tab.")
+
 
 def main() -> None:
+    ts = f"{datetime.now():%Y-%m-%d %H:%M:%S}"
     print("=" * 72)
-    print(f"  REPORT CHECKER - test harness   {datetime.now():%Y-%m-%d %H:%M:%S}")
+    print(f"  REPORT CHECKER - test harness   {ts}")
     print("=" * 72)
     for fn in SECTIONS:
         try:
@@ -400,6 +435,13 @@ def main() -> None:
     print(f"  {total - len(failed)}/{total} passed"
           + (f"   {len(failed)} FAILED" if failed else "   ALL PASS"))
     print("=" * 72)
+
+    if "--upload" in sys.argv:
+        try:
+            upload_results(ts)
+        except Exception as exc:  # noqa: BLE001
+            print(f"!! upload failed (needs Editor access on the sheet): {exc}")
+
     sys.exit(1 if failed else 0)
 
 

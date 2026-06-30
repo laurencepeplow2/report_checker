@@ -369,8 +369,134 @@ def section_K():
         ok(s, "figure_parts runs on a sample image", False, str(exc)[:120])
 
 
+# ---- integration: build a real synthetic Google Doc, parse it end-to-end ---
+# Paragraphs as (heading_level, [(text, {bold?/link?})]). Front matter before
+# the first H1 is the title page (should be skipped); H1s are the sections.
+TEST_DOC_PARAS = [
+    (0, [("REPORT - synthetic test document", {})]),          # front matter, skipped
+    (0, [("Author: nobody, 2026", {})]),                      # front matter, skipped
+    (1, [("Executive summary", {})]),
+    (0, [("This is the executive summary body text.", {})]),
+    (1, [("1. Introduction", {})]),
+    (0, [("Battery electric vehicles are now a major part of the market and this "
+          "sentence deliberately runs well past seventeen words so it trips the "
+          "red sentence-length rule for sure.", {})]),
+    (0, [("This study was produced by ", {}), ("Transport & Environment", {}),
+         (" in 2026.", {})]),
+    (0, [("This entire sentence is set in bold for emphasis when it should not be.",
+          {"bold": True})]),
+    (0, [("See the analysis ", {}), ("in France", {"link": "https://example.org/fr"}),
+         (" for more detail.", {})]),
+    (0, [("—", {})]),                                      # em-dash divider, skipped
+    (1, [("Recommendations", {})]),
+    (0, [("We recommend stronger and clearer passenger rights.", {})]),
+    (1, [("Methodology", {})]),                                # -> annex
+    (0, [("We reviewed routes and operators across the network.", {})]),
+]
+TEST_DOC_FOOTER = "Source: synthetic test footer line."
+
+
+def make_test_doc() -> str:
+    """Create a real Google Doc seeded with known structures; return its id."""
+    from app.auth import docs_service
+    docs = docs_service()
+    doc_id = docs.documents().create(
+        body={"title": "__report_checker_integration_test__"}).execute()["documentId"]
+
+    inserts, styles, idx = [], [], 1
+    for level, runs in TEST_DOC_PARAS:
+        para_start = idx
+        for text, opts in runs:
+            inserts.append({"insertText": {"location": {"index": idx}, "text": text}})
+            start, end = idx, idx + len(text)
+            if opts.get("bold"):
+                styles.append({"updateTextStyle": {"range": {"startIndex": start, "endIndex": end},
+                                                    "textStyle": {"bold": True}, "fields": "bold"}})
+            if opts.get("link"):
+                styles.append({"updateTextStyle": {"range": {"startIndex": start, "endIndex": end},
+                                                    "textStyle": {"link": {"url": opts["link"]}}, "fields": "link"}})
+            idx = end
+        inserts.append({"insertText": {"location": {"index": idx}, "text": "\n"}})
+        idx += 1
+        if level:
+            styles.append({"updateParagraphStyle": {
+                "range": {"startIndex": para_start, "endIndex": idx},
+                "paragraphStyle": {"namedStyleType": f"HEADING_{level}"},
+                "fields": "namedStyleType"}})
+    docs.documents().batchUpdate(documentId=doc_id, body={"requests": inserts + styles}).execute()
+
+    # a page footer with text, so footer detection has something real to find
+    rep = docs.documents().batchUpdate(documentId=doc_id, body={
+        "requests": [{"createFooter": {"type": "DEFAULT"}}]}).execute()
+    footer_id = rep["replies"][0]["createFooter"]["footerId"]
+    docs.documents().batchUpdate(documentId=doc_id, body={"requests": [
+        {"insertText": {"location": {"segmentId": footer_id, "index": 0},
+                        "text": TEST_DOC_FOOTER}}]}).execute()
+    return doc_id
+
+
+def delete_test_doc(doc_id: str) -> None:
+    """Best-effort trash of the synthetic doc (drive.file covers app-created)."""
+    try:
+        from app.auth import drive_service
+        drive_service().files().update(fileId=doc_id, body={"trashed": True}).execute()
+    except Exception as exc:  # noqa: BLE001
+        print(f"   (could not trash test doc {doc_id}: {exc} - delete manually)")
+
+
+def section_L():
+    s = "L. integration (real Google Doc, end-to-end)"
+    if "--integration" not in sys.argv:
+        ok(s, "skipped (pass --integration to run)", True, "")
+        return
+    from app.docs_parser import parse_document
+    doc_id = None
+    try:
+        doc_id = make_test_doc()
+        p = parse_document(doc_id, allowed_types=["report", "briefing", "pr"])
+        paras = [c for c in p.chunks if c.input_level == "paragraph"]
+        texts = [c.text for c in paras]
+        secs = {c.section for c in paras}
+        ok(s, "document parsed into chunks", bool(p.chunks))
+        eq(s, "document_type detected", p.document_type, "report")
+        ok(s, "front matter (pre-H1) skipped", not any("Author: nobody" in t for t in texts))
+        ok(s, "em-dash divider skipped", not any(t.strip() == "—" for t in texts))
+        ok(s, "executive summary section found", "executive summary" in secs)
+        ok(s, "main text section found", "main text" in secs)
+        ok(s, "methodology mapped to annex", "annex" in secs)
+        ok(s, "recommendations section found", "recommendations" in secs)
+        # coded checks on the parsed content
+        org = next((c for c in paras if "Transport & Environment" in c.text), None)
+        ok(s, "org full-name paragraph present", org is not None)
+        if org:
+            eq(s, "org full name flagged red", C.org_full_name_flag(org.text)[0], "r")
+        longp = next((c for c in paras if "seventeen words" in c.text), None)
+        if longp:
+            eq(s, "long sentence flagged red",
+               C.sentence_length_flag(longp.text, {"a": 12, "r": 16})[0], "r")
+        boldp = next((c for c in paras if "set in bold" in c.text), None)
+        ok(s, "bold span extracted from formatted_text",
+           bool(boldp) and bool(C.emphasis_spans(boldp.formatted_text)))
+        linkp = next((c for c in paras if "in France" in c.text), None)
+        ok(s, "hyperlink markup carried to formatted_text",
+           bool(linkp) and "[in France](https://example.org/fr)" in linkp.formatted_text)
+        ok(s, "link extracted into parsed.links",
+           any("example.org/fr" in lk["url"] for lk in p.links))
+        ok(s, "hyperlink rule would route in (link detected)",
+           bool(linkp) and C.contains_hyperlink(linkp.formatted_text))
+        ok(s, "page footer detected", p.footer_count >= 1)
+        ok(s, "story includes 1. Introduction",
+           any(h["text"] == "1. Introduction" for h in A.story(p)))
+    except Exception as exc:  # noqa: BLE001
+        ok(s, "integration run", False, repr(exc)[:160])
+    finally:
+        if doc_id:
+            delete_test_doc(doc_id)
+
+
 SECTIONS = [section_A, section_B, section_C, section_D, section_E,
-            section_F, section_G, section_H, section_I, section_J, section_K]
+            section_F, section_G, section_H, section_I, section_J, section_K,
+            section_L]
 
 TESTING_TAB = "testing_run"
 

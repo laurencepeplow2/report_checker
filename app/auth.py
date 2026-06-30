@@ -15,6 +15,9 @@ SCOPES = [
     # write scope: editor mode commits reviewed suggestions to the doc
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive.readonly",
+    # drive.file: create + trash ONLY app-created files (the synthetic doc the
+    # integration test makes); does not grant access to the user's other files
+    "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 

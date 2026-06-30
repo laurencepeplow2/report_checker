@@ -143,7 +143,12 @@ the pipeline runs on Windows.
 fixtures with known outcomes — text cleaning, ingestion/word-count, section
 mapping, coded rules, rule loading + hyperlink/number routing, link
 classification, footers, distributions, the story arc, rewrites/links, and a
-loose figure-OCR check. It's not run per report; **extend it whenever code is
+loose figure-OCR check. `--integration` additionally creates a **real**
+synthetic Google Doc (seeded with a divider em-dash, a 17-word sentence,
+"Transport & Environment", a bold sentence, a hyperlink, a page footer, a
+Methodology section…), parses it through the whole pipeline, asserts the known
+outcomes, and trashes it. `--upload` writes the run to the `testing_run` tab
+of the master sheet. It's not run per report; **extend it whenever code is
 added or changed** so it keeps genuinely finding regressions.
 
 `build_share.py` assembles `share/report_checker/` — one self-contained folder
